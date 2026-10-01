@@ -64,7 +64,7 @@ local bot_item =
 {
   type = "item",
   name = "companion-construction-robot",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+  icon = "__companion-drones-luan__/sprites/drone-icon.png",
   icon_size = 200,
   subgroup = "logistic-network",
   order = "a[robot]-b[construction-robot]",
@@ -154,7 +154,7 @@ local equipment_item =
   icons =
   {
     {
-      icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+      icon = "__companion-drones-luan__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -187,7 +187,7 @@ inserter_beam.name = "inserter-beam"
 --inserter_beam.head.repeat_count = 8
 --inserter_beam.head =
 --{
---  filename = "__companion-drones-gadgetroch__/data//hr-fast-inserter-hand-closed.png",
+--  filename = "__companion-drones-luan__/data//hr-fast-inserter-hand-closed.png",
 --  priority = "extra-high",
 --  width = 164,
 --  height = 72,
@@ -197,7 +197,7 @@ inserter_beam.name = "inserter-beam"
 --inserter_beam.start.repeat_count = 8
 --inserter_beam.body =
 --{
---  filename = "__companion-drones-gadgetroch__/data//hr-fast-inserter-hand-base.png",
+--  filename = "__companion-drones-luan__/data//hr-fast-inserter-hand-base.png",
 --  priority = "extra-high",
 --  height = 32,
 --  width = 136,
@@ -226,7 +226,7 @@ local drone =
   collision_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   selection_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   drawing_box = {{-3 * scale, -4 * scale}, {3 * scale, 2 * scale}},
-  icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+  icon = "__companion-drones-luan__/sprites/drone-icon.png",
   icon_size = 200,
   mined_sound = {filename = "__core__/sound/deconstruct-large.ogg",volume = 0.8},
   open_sound = { filename = "__base__/sound/spidertron/spidertron-door-open.ogg", volume= 0.35 },
@@ -355,7 +355,7 @@ local drone =
 
   minimap_representation =
   {
-    filename = "__companion-drones-gadgetroch__/sprites/drone-map.png",
+    filename = "__companion-drones-luan__/sprites/drone-map.png",
     flags = {"icon"},
     size = {128, 128},
     scale = 0.25
@@ -429,9 +429,9 @@ local drone_item =
 {
   type = "item-with-entity-data",
   name = "companion",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
-  icon_tintable = "__companion-drones-gadgetroch__/sprites/drone-icon-tintable.png",
-  icon_tintable_mask = "__companion-drones-gadgetroch__/sprites/drone-icon-mask.png",
+  icon = "__companion-drones-luan__/sprites/drone-icon.png",
+  icon_tintable = "__companion-drones-luan__/sprites/drone-icon-tintable.png",
+  icon_tintable_mask = "__companion-drones-luan__/sprites/drone-icon-mask.png",
   icon_size = 200,
   subgroup = "companion",
 
@@ -510,7 +510,7 @@ local gun_item =
   icons =
   {
     {
-      icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+      icon = "__companion-drones-luan__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -530,7 +530,7 @@ local plasma_projectile =
 {
   type = "projectile",
   name = "companion-projectile",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+  icon = "__companion-drones-luan__/sprites/drone-icon.png",
   icon_size = 200,
   flags = {"not-on-map"},
   subgroup = "explosions",
@@ -616,7 +616,7 @@ local shield_item =
   icons =
   {
     {
-      icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+      icon = "__companion-drones-luan__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -689,7 +689,7 @@ local companion_shield_item_mk0 = {
     localised_name = {"item-name.companion-shield-mk0"},
     icons = {
         {
-            icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+            icon = "__companion-drones-luan__/sprites/drone-icon.png",
             icon_size = 200
         },
         {
@@ -815,7 +815,7 @@ local companion_roboport_item_mk0 = {
     localised_name = {"item-name.companion-roboport-mk0"},
     icons = {
         {
-            icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+            icon = "__companion-drones-luan__/sprites/drone-icon.png",
             icon_size = 200
         },
         {
@@ -880,7 +880,7 @@ local battery_item =
 {
   type = "item",
   name = "companion-battery-equipment",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+  icon = "__companion-drones-luan__/sprites/drone-icon.png",
   icon_size = 200,
   place_as_equipment_result = "companion-battery-equipment",
   subgroup = "companion",
@@ -933,7 +933,7 @@ local reactor_item =
   icons =
   {
     {
-      icon = "__companion-drones-gadgetroch__/sprites/drone-icon.png",
+      icon = "__companion-drones-luan__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -1142,7 +1142,7 @@ local speed_flame =
 {
     type = "animation",
     name = "companion-speed-flame",
-    filename        = "__companion-drones-gadgetroch__/sprites/10-jet-flame.png",
+    filename        = "__companion-drones-luan__/sprites/10-jet-flame.png",
     width           = 172,
     height          = 256,
     frame_count     = 8,
@@ -1155,7 +1155,7 @@ local speed_flame =
 
 local attack_icon =
 {
-  filename = "__companion-drones-gadgetroch__/sprites/drone-attack-shortcut.png",
+  filename = "__companion-drones-luan__/sprites/drone-attack-shortcut.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1164,7 +1164,7 @@ local attack_icon =
 
 local attack_icon_disabled =
 {
-  filename = "__companion-drones-gadgetroch__/sprites/drone-attack-shortcut-disabled.png",
+  filename = "__companion-drones-luan__/sprites/drone-attack-shortcut-disabled.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1179,9 +1179,9 @@ local attack_shortcut =
   order = "a[companion-drones]",
   action = "lua",
   style = "default",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-attack-shortcut.png",
+  icon = "__companion-drones-luan__/sprites/drone-attack-shortcut.png",
   icon_size = 200,
-  small_icon = "__companion-drones-gadgetroch__/sprites/drone-attack-shortcut.png",
+  small_icon = "__companion-drones-luan__/sprites/drone-attack-shortcut.png",
   small_icon_size = 200,
   toggleable = true
 }
@@ -1189,7 +1189,7 @@ local attack_shortcut =
 
 local construct_icon =
 {
-  filename = "__companion-drones-gadgetroch__/sprites/drone-construction-shortcut.png",
+  filename = "__companion-drones-luan__/sprites/drone-construction-shortcut.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1198,7 +1198,7 @@ local construct_icon =
 
 local construct_icon_disabled =
 {
-  filename = "__companion-drones-gadgetroch__/sprites/drone-construction-shortcut-disabled.png",
+  filename = "__companion-drones-luan__/sprites/drone-construction-shortcut-disabled.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1213,9 +1213,9 @@ local construct_shortcut =
   order = "a[companion-drones]",
   action = "lua",
   style = "default",
-  icon = "__companion-drones-gadgetroch__/sprites/drone-construction-shortcut.png",
+  icon = "__companion-drones-luan__/sprites/drone-construction-shortcut.png",
   icon_size = 200,
-  small_icon = "__companion-drones-gadgetroch__/sprites/drone-construction-shortcut.png",
+  small_icon = "__companion-drones-luan__/sprites/drone-construction-shortcut.png",
   small_icon_size = 200,
   toggleable = true
 }

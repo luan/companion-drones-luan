@@ -176,8 +176,13 @@ local fuel_items
 local get_fuel_items = function(player)
     local fuel_items = {}
     for k, item in pairs(prototypes.item) do
-        if item.fuel_value > 0 and item.fuel_category == "chemical" then
-            table.insert(fuel_items, {name = item.name, count = 1, fuel_top_speed_multiplier = item.fuel_top_speed_multiplier})
+        if item.fuel_value > 0 then
+            for _, category in pairs(item.fuel_categories or {}) do
+                if category == "chemical" then
+                    table.insert(fuel_items, {name = item.name, count = 1, fuel_top_speed_multiplier = item.fuel_top_speed_multiplier})
+                    break
+                end
+            end
         end
     end
 

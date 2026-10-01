@@ -1,3 +1,25 @@
+# Companion Drones - Luan Fork
+
+Maintenance fork of [Companion Drones Gadgetroch 3.2.0](https://mods.factorio.com/mod/companion-drones-gadgetroch) for Factorio 2.1.
+
+Version 3.2.1 fixes `LuaItemPrototype doesn't contain key fuel_category` when placing or refueling a drone. It uses the Factorio 2.1 `fuel_categories` list and preserves the existing best/worst fuel preference. The `/companion` command and upstream gameplay remain available.
+
+## Switching from another fork
+
+Back up your save. While the previous fork is still enabled, mine your existing companion drones into your inventory. Disable that fork and enable this one together before loading the save; do not save in between with neither mod enabled. Place the drones again to register their owners with this fork. Item, entity, equipment, and setting names are preserved, but script storage belongs to each mod separately. Only one Companion Drones fork can be enabled at a time.
+
+## Credits and license
+
+Original authors: Klonan, kubiix, MrJakobLaich, Maoman. Gadgetroch provided the Factorio 2.1 fork and `/companion` command. Luan maintains this fork. Original upstream documentation and changelog are retained below.
+
+Released under GNU LGPLv3, as declared by the Gadgetroch Mod Portal release. See COPYING.LESSER and COPYING. Changes in this fork are recorded in changelog.txt. Source: https://github.com/luan/companion-drones-luan
+
+## Validation
+
+Run `python3 tests/run.py /path/to/factorio` with Factorio 2.1. The isolated native test checks the build event, both fuel preferences, nonchemical fuel rejection, multiple fuel categories, and ongoing refueling. It never reads or writes player saves.
+
+## Upstream documentation
+
 The most up-to-date description can always be found here: https://mods.factorio.com/mod/companion-drones-mjlfix
 
 #Companion Drones in 2.0 and Space Age for YOU.

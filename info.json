@@ -1,12 +1,15 @@
 {
-  "name": "companion-drones-gadgetroch",
-  "version": "3.2.0",
-  "title": "Companion Gadgetroch Fork",
-  "author": "Gadgetroch (fork) — Maoman, MrJakobLaich, kubiix, Klonan",
-  "homepage": "",
-  "description": "Companion Gadgetroch Fork: personal fork of Companion Drones for Factorio 2.1. Adds the /companion command to hand out a build/defend drone when you join a server mid-game. See mod description.",
+  "name": "companion-drones-luan",
+  "version": "3.2.1",
+  "title": "Companion Drones — Luan Fork",
+  "author": "Luan (fork), Gadgetroch, Maoman, MrJakobLaich, kubiix, Klonan",
+  "homepage": "https://github.com/luan/companion-drones-luan",
+  "description": "Maintenance fork of Companion Drones Gadgetroch for Factorio 2.1. Fixes the fuel_category crash when placing or refueling a drone. Includes the /companion command.",
   "dependencies": [
-    "base >= 2.1.0"
+    "base >= 2.1.0",
+    "! companion-drones-gadgetroch",
+    "! companion-drones-mjlfix",
+    "! companion-drones"
   ],
   "factorio_version": "2.1"
 }

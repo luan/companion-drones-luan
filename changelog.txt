@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.2.1
+Date: 2026-09-30
+  Bugfixes:
+    - Fix drone placement and refueling crashes on Factorio 2.1 by reading fuel_categories.
+    - Accept chemical fuel in any category position, preserving the player's fuel preference.
+  Changes:
+    - Fork Companion Gadgetroch Fork 3.2.0 as companion-drones-luan.
+    - Preserve upstream credits and GNU LGPLv3 licensing.
+---------------------------------------------------------------------------------------------------
 Version: 3.2.0
 Date: 2026-07-03
   Features:

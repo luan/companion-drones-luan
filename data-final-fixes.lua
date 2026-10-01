@@ -15,7 +15,7 @@ end
 local companion = data.raw["spider-vehicle"] and data.raw["spider-vehicle"]["companion"]
 if companion and companion.graphics_set then
     local SHADOW = {
-        filename = "__companion-drones-gadgetroch__/sprites/shadow.png",
+        filename = "__companion-drones-luan__/sprites/shadow.png",
         width = 256, height = 256,
         shift = util.by_pixel(-9, 4),
         scale = 0.15,
