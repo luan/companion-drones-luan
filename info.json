@@ -1,0 +1,12 @@
+{
+  "name": "companion-drones-gadgetroch",
+  "version": "3.2.0",
+  "title": "Companion Gadgetroch Fork",
+  "author": "Gadgetroch (fork) — Maoman, MrJakobLaich, kubiix, Klonan",
+  "homepage": "",
+  "description": "Companion Gadgetroch Fork: personal fork of Companion Drones for Factorio 2.1. Adds the /companion command to hand out a build/defend drone when you join a server mid-game. See mod description.",
+  "dependencies": [
+    "base >= 2.1.0"
+  ],
+  "factorio_version": "2.1"
+}
