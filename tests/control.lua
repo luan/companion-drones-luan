@@ -36,7 +36,8 @@ local function setup(player)
     storage.follower_allowance = player.force.maximum_following_robot_count
     storage.companion = entity
     player.insert{name = "companion", count = 1}
-    storage.legacy_drone_ghost = ghost("companion", {12, 0}, nil, player.surface)
+    local blueprint_allowed = pcall(function() ghost("companion", {12, 0}, nil, player.surface) end)
+    check(blueprint_allowed, false, "native prototype rejects companion blueprint ghosts")
     storage.missing = ghost("assembling-machine-1", {-4, 0})
     storage.belt = ghost("transport-belt", {5, 0})
     log("COMPANION scenario started")
@@ -118,10 +119,8 @@ script.on_event(defines.events.on_tick, function(event)
         if elapsed == 418 then check(storage.combat_health - storage.enemy.health, 160, "four escorts preserve the original 200 DPS") end
     end
     if elapsed == 120 then
-        check(storage.legacy_drone_ghost.valid, true, "legacy blueprints cannot create unregistered companions")
         check(player.get_item_count("companion"), 1, "legacy drone item is preserved")
         check(player.surface.count_entities_filtered{name = "companion"}, 1, "legacy blueprint cannot bypass fleet capacity")
-        storage.legacy_drone_ghost.destroy()
         check(storage.belt.valid, false, "build available belt past missing assembler")
         check(storage.missing.valid, true, "unavailable assembler stays a ghost")
         check(player.get_item_count("transport-belt"), 149, "only required belt taken")

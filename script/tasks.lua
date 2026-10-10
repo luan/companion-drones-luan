@@ -6,7 +6,6 @@ function tasks.distance(a, b)
 end
 
 local function placement_item(prototype, quality)
-    if prototype and prototype.name == "companion" then return end -- Fleet research owns companion creation.
     local items = prototype and prototype.items_to_place_this
     local item = items and items[1]
     if item then return {name = item.name, count = item.count or 1, quality = quality} end
