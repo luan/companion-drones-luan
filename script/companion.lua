@@ -10,6 +10,7 @@ local follow_range = 12  -- how close we stick to the player
 local task_timeout = 120 -- Two seconds without work, or outside the normal owner leash.
 local def_speed = 5.0    -- non challenge mode companion speed
 local ensure_player_companions
+local recall_fighting_robots
 local lib = {}           -- predeclaration
 local debug_mode = false -- enables debugging functionality (no gameplay difference)
 
@@ -1589,10 +1590,7 @@ local on_player_changed_surface = function(event)
     local surface = player.physical_surface
     local position = player.physical_position
     player_data.next_combat_deployment = nil
-    for id, robot in pairs(player_data.combat_robots or {}) do
-        if robot.valid then robot.destroy() end
-        player_data.combat_robots[id] = nil
-    end
+    recall_fighting_robots(player)
 
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
@@ -1646,10 +1644,7 @@ local on_player_joined_game = function(event)
     local surface = player.physical_surface
     local position = player.physical_position
     player_data.next_combat_deployment = nil
-    for id, robot in pairs(player_data.combat_robots or {}) do
-        if robot.valid then robot.destroy() end
-        player_data.combat_robots[id] = nil
-    end
+    recall_fighting_robots(player)
 
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
@@ -1673,10 +1668,7 @@ local on_player_changed_force = function(event)
 
     local player = game.get_player(event.player_index)
     local force = player.force
-    for id, robot in pairs(player_data.combat_robots or {}) do
-        if robot.valid then robot.destroy() end
-        player_data.combat_robots[id] = nil
-    end
+    recall_fighting_robots(player)
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
         if companion then
@@ -1744,7 +1736,7 @@ local on_player_mined_entity = function(event)
     end
 end
 
-local recall_fighting_robots = function(player)
+recall_fighting_robots = function(player)
     local player_data = script_data.player_data[player.index]
     if not player_data then return end
     player_data.next_combat_deployment = nil
@@ -1752,6 +1744,7 @@ local recall_fighting_robots = function(player)
         if robot.valid then robot.destroy() end
         player_data.combat_robots[id] = nil
     end
+    player_data.combat_sources, player_data.combat_slots = {}, {}
 end
 
 local recall_constructing_robots = function(player)
