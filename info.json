@@ -1,10 +1,10 @@
 {
   "name": "companion-drones-luan",
-  "version": "3.2.1",
-  "title": "Companion Drones — Luan Fork",
+  "version": "4.0.0",
+  "title": "Entourage \u2014 Companion Crew",
   "author": "Luan (fork), Gadgetroch, Maoman, MrJakobLaich, kubiix, Klonan",
   "homepage": "https://github.com/luan/companion-drones-luan",
-  "description": "Maintenance fork of Companion Drones Gadgetroch for Factorio 2.1. Fixes the fuel_category crash when placing or refueling a drone. Includes the /companion command.",
+  "description": "Your permanent companion deploys a crew of parallel crafters, construction managers and combat escorts. Exact material reservations, logistics chest access, independent crafting, planet upgrades and infinite promethium fleet research. No fuel or charging delays.",
   "dependencies": [
     "base >= 2.1.0",
     "! companion-drones-gadgetroch",

@@ -1,33 +1,23 @@
-local utils = require("utils") -- I don' t think I actually use anything from this currently but I might one day
-local challenge_mode = settings.startup["set-challenge-mode"].value -- is the old challenge mode option enabled?
-local mode = settings.startup["set-mode"].value -- Are we in normal (0), challenge (1), forgiving (2), or combined (3) mode?
-local abandon_job_distance = 128 -- distance that we ignore jobs and follow the player instead
+local tasks = require("script/tasks")
+local crafting = require("script/crafting")
+local workers = require("script/workers")
+local visuals = require("script/visuals")
+local mode = settings.startup["set-mode"].value
+-- Preserve old saves that selected the former challenge-mode switch.
+if settings.startup["set-challenge-mode"].value and mode % 2 == 0 then mode = mode + 1 end
+local abandon_job_distance = 24 -- Hard owner leash, independent of research.
 local follow_range = 12  -- how close we stick to the player
-local sticker_life = 11  -- modifies flight speed (sorta, it's complicated)
-local dist_bonus = 2     -- offset when setting job destination
-local staging_step = 2   -- offset when stepping towards a job
-local inner_margin = 2   -- offset when stopping on a job
+local task_timeout = 120 -- Two seconds without work, or outside the normal owner leash.
 local def_speed = 5.0    -- non challenge mode companion speed
-local cmax = 12          -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
+local ensure_player_companions
 local lib = {}           -- predeclaration
 local debug_mode = false -- enables debugging functionality (no gameplay difference)
 
---[[ TABLE OF CONTENTS ]]--
---[[
-Line   31 Challenge mode stat control
-Line  133 Initialization
-Line  338 Utilities
-Line 1345 Core Logic
-Line 1765 Secondary Utilities
-Line 2545 Migrations
-Line 2754 Commands and Remotes
-Last updated 3.1.0]]
 --------------------------- Challenge Mode Stat Control ---------------------------
 
 local function set_defaults()
     if not storage then storage = storage or {} end
     storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
-    storage.fuel_multiplier = 1
     storage.companion_speed_factor = storage.companion_speed_factor or 1.0
     storage.player_speed_factor = storage.player_speed_factor or {} 
     if mode == 1 or mode == 3 then -- shitty values to start with in challenge mode
@@ -39,7 +29,7 @@ local function set_defaults()
         storage.base_speed                   = def_speed
         storage.attack_count                 = 8
         storage.max_distance                 = 100
-        storage.max_companions               = 3
+        storage.max_companions               = 1
     end
 end
 
@@ -64,12 +54,8 @@ local function ensure_companion_upgrades()
             ["logistics"]               = {{stat="max_distance",   value=48,   phrase="This will let me plan ahead better."}},
             ["lamp"]                    = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
             ["radar"]                   = {{stat="max_distance",   value=128,  phrase="Radar has extended my range to max."}},
-            --How far the companion looks for construction jobs; highest value should not exceed abandon_job_distance
+            -- Legacy challenge research remains available; the owner leash limits task searches.
             
-            ["processing-unit"]         = {{stat="max_companions", value=math.ceil(cmax/5),  phrase="Your suit can handle a friend now!"}},
-            ["power-armor-mk2"]         = {{stat="max_companions", value=cmax, phrase="Your suit's fully upgraded: time to roll out the squad."}},
-            --How many companions you can have simultaneously; change "cmax" at start of file, not this.
-
             -- Companion Shield upgrade tree
             ["energy-shield-equipment"] = {{
                 stat="companion-shield-mk0", 
@@ -107,23 +93,6 @@ local function ensure_companion_upgrades()
     end
 end
 
-local stat_tables = {
-    base_speed    = storage.base_speed,
-    damage        = storage.attack_count,
-    max_distance  = storage.max_distance,
-    number_drones = storage.max_companions,
-}
--- this table and function are so that each stat can be referenced dynamically (it avoids a gigantic if-then chain)
-local function get_stats_for_tech(tech)
-    local found = {}
-    for stat, table in pairs(stat_tables) do
-        if table[tech] then
-            found[stat] = table[tech]
-        end
-    end
-    return found
-end
-
 --------------------------- Initialization ---------------------------
 
 local script_data =
@@ -131,8 +100,7 @@ local script_data =
     companions = {},
     active_companions = {},
     player_data = {},
-    search_schedule = {},
-    specific_job_search_queue = {}
+
 }
 
 local function bind_storage()
@@ -158,66 +126,40 @@ lib.on_init = function()
     bind_storage()
 end
 
-local repair_tools
-local get_repair_tools = function()
-    if repair_tools then
-        return repair_tools
-    end
-    repair_tools = {}
-    for k, item in pairs (prototypes.item) do
-        if item.type == "repair-tool" then
-            repair_tools[item.name] = true
-        end
-    end
-    return repair_tools
-end
-
-local fuel_items
-local get_fuel_items = function(player)
-    local fuel_items = {}
-    for k, item in pairs(prototypes.item) do
-        if item.fuel_value > 0 then
-            for _, category in pairs(item.fuel_categories or {}) do
-                if category == "chemical" then
-                    table.insert(fuel_items, {name = item.name, count = 1, fuel_top_speed_multiplier = item.fuel_top_speed_multiplier})
-                    break
-                end
-            end
-        end
-    end
-
-    local use_best_fuel_first = settings.get_player_settings(player)["set-fuel-preference"].value
-    table.sort(fuel_items, function(a, b)
-        if use_best_fuel_first then
-            return a.fuel_top_speed_multiplier > b.fuel_top_speed_multiplier
-        else
-            return a.fuel_top_speed_multiplier < b.fuel_top_speed_multiplier
-        end
-    end)
-
-    return fuel_items
+local function crafting_speed(player, planets)
+    local technology = player.force.technologies["companion-crafting-speed-1"]
+    local levels = technology and technology.level - 1 or 0
+    return settings.startup["companion-crafting-speed"].value * (1 + 0.5 * levels + 0.25 * planets)
 end
 
 local function set_companion_stats(player)
     ensure_companion_upgrades()
-    local force = player.force
-    local techs = force.technologies
-
-    local best_values = {}
-
+    local challenge = mode == 1 or mode == 3
+    local stats = {base_speed = challenge and 0.5 or def_speed,
+        attack_count = challenge and 0 or 8, max_distance = challenge and 24 or 100,
+        max_companions = 1}
     for tech, upgrades in pairs(storage.companion_upgrades) do
-        if techs[tech] and techs[tech].researched then
-            local upgrade = upgrades[1]
-            local stat, value = upgrade.stat, upgrade.value
-            if not best_values[stat] or value > best_values[stat] then
-                best_values[stat] = value
+        if player.force.technologies[tech] and player.force.technologies[tech].researched then
+            for _, upgrade in pairs(upgrades) do
+                if type(upgrade.value) == "number" then
+                    local stat = upgrade.stat == "number_drones" and "max_companions" or upgrade.stat
+                    stats[stat] = math.max(stats[stat] or 0, upgrade.value)
+                end
             end
         end
     end
-    storage.base_speed    = best_values.base_speed or storage.base_speed
-    storage.attack_count  = best_values.attack_count or storage.attack_count
-    storage.max_distance  = best_values.max_distance or storage.max_distance
-    storage.number_drones = best_values.number_drones or storage.number_drones
+    local planets = 0
+    for name, tech in pairs(player.force.technologies) do
+        if name:sub(1, #"companion-planet-") == "companion-planet-" and tech.researched then planets = planets + 1 end
+    end
+    local promethium = player.force.technologies["companion-promethium-1"]
+    stats.max_companions = 1 + math.floor(planets / 2) + (promethium and promethium.level - 1 or 0)
+    stats.planet_upgrades = planets
+    stats.base_speed = stats.base_speed * (1 + planets * 0.1)
+    stats.attack_count = stats.attack_count + planets
+    local pd = script_data.player_data[player.index]
+    if pd then pd.stats = stats end
+    return stats
 end
 
 local get_companion = function(unit_number)
@@ -231,16 +173,6 @@ local get_companion = function(unit_number)
     end
 
     return companion
-end
-
-local name = "secret_companion_surface_please_don't_touch"
-local get_secret_surface = function()
-    local surface = game.surfaces[name]
-    if surface then
-        return surface
-    end
-    surface = game.create_surface(name, {height = 1, width = 1})
-    return surface
 end
 
 local rotate_vector = function(vector,    orientation)
@@ -289,13 +221,12 @@ Companion.new = function(entity, player)
 
     local count = 0
     for _ in pairs(player_data.companions) do count = count + 1 end
-    if count >= storage.max_companions then
+    local stats = set_companion_stats(player)
+    if count >= stats.max_companions then
         if count == 1 then
 			player.print("Your in-suit controller can't handle another friend just now.")
-		elseif count == cmax then
-			player.print("Your in-suit controller can only handle " .. cmax .. " of us at once!")
 		else
-			player.print("Your in-suit controller can't handle more than " .. storage.max_companions .. " companions for now.")
+			player.print("Your in-suit controller can't handle more than " .. stats.max_companions .. " companions for now.")
 		end
         if entity and entity.valid then
 			local inserted = player.insert{name = entity.name, count = 1}
@@ -330,13 +261,16 @@ Companion.new = function(entity, player)
     script_data.companions[entity.unit_number] = companion
     script.register_on_object_destroyed(entity)
 
-    companion:try_to_refuel()
+    companion:charge()
+    entity.minable_flag = false
+    entity.destructible = false
     companion:set_active()
 end
 
 --------------------------- Utilities ---------------------------
 
 local adjust_follow_behavior = function(player)
+    if not player.character or player.physical_surface.platform then return end
     local player_data = script_data.player_data[player.index]
     if not player_data then return end
     local count = 0
@@ -392,76 +326,44 @@ local adjust_follow_behavior = function(player)
             companion.entity.follow_offset = follow_offset
         end
         companion:set_speed(speed + companion:get_distance_boost(companion.entity.autopilot_destination))
-        companion:try_to_refuel()
+        companion:charge()
     end
 end
 
-function Companion:_job_distance_and_range(target)
-    local t = target or self.current_job_target
-    if not t then return nil, nil end
-    local tx = t.x or t[1]
-    local ty = t.y or t[2]
-    local p  = self.entity.position
-    local dx = tx - p.x
-    local dy = ty - p.y
-    local d  = math.sqrt(dx*dx + dy*dy)
-    local reach = (storage and storage.max_distance) or 24
-    return d, reach
-end
-
-function Companion:_inside_job_zone(margin)
-    local d, reach = self:_job_distance_and_range()
-    if not d then return false end
-    margin = margin or inner_margin
-    return d <= math.max(0, reach - margin)
-end
-
-local function eff_base()
-    if mode ~=1 and mode ~=3 then return def_speed end
-    if not storage.companion_speed_factor then
-        storage.companion_speed_factor = 1.0
-    end
-    return (storage.base_speed) * (storage.companion_speed_factor)
-end
-
-local get_speed_boost = function(burner)
-    local burning = burner and burner.currently_burning
-    if not burning then return 1 end
-    storage.fuel_multiplier = storage.fuel_multiplier or 1
-    return (burning.fuel_top_speed_multiplier or 1) * storage.fuel_multiplier
-end
-
-function Companion:can_spawn_robot()
-    return table_size(self.robots or {}) < (storage.scripted_robot_limit or 69)
-end
-
-function Companion:set_robot_stack()
-    local inventory = self:get_inventory()
-    if not inventory.set_filter(21,"companion-construction-robot") then
-        inventory[21].clear()
-        inventory.set_filter(21,"companion-construction-robot")
-    end
-
-    if self.can_construct and self:player_wants_construction() then
-        inventory[21].set_stack({name = "companion-construction-robot", count = 100})
-    else
-        inventory[21].clear()
-    end
+local function eff_base(player)
+    local pd = script_data.player_data[player.index]
+    return (pd and pd.stats or set_companion_stats(player)).base_speed
 end
 
 function Companion:clear_robot_stack()
     local inventory = self:get_inventory()
-    if not inventory.set_filter(21,"companion-construction-robot") then
-        inventory[21].clear()
-        inventory.set_filter(21,"companion-construction-robot")
+    local stack = inventory[21]
+    if stack.valid_for_read and stack.name ~= "companion-construction-robot" then
+        local inserted = self.player.insert(stack)
+        if inserted == stack.count then stack.clear()
+        else
+            stack.count = stack.count - inserted
+            self.entity.surface.spill_item_stack{position = self.entity.position, stack = stack,
+                enable_looted = true, force = self.entity.force, allow_belts = false}
+            stack.clear()
+        end
     end
-    inventory[21].clear()
+    stack.clear()
+    inventory.set_filter(21, "companion-construction-robot")
+end
+
+function Companion:set_robot_stack()
+    self:clear_robot_stack()
+    if self.can_construct and self:player_wants_construction() and self.job then
+        self:get_inventory()[21].set_stack{name = "companion-construction-robot", count = 100}
+    end
+    self.entity.allow_dispatching_robots = self.job ~= nil and self:player_wants_construction()
 end
 
 function Companion:set_active()
     self:set_robot_stack()
     self.flagged_for_equipment_changed = true
-    local mod = self.unit_number % storage.companion_update_interval
+    local mod = self.unit_number % math.min(storage.companion_update_interval, 5)
     local list = script_data.active_companions[mod]
     if not list then
         list = {}
@@ -469,41 +371,8 @@ function Companion:set_active()
     end
     list[self.unit_number] = true
     self.active = true
-    self:set_speed((eff_base() * 1.2) * get_speed_boost(self.entity.burner))
+    self:set_speed(eff_base(self.player) * 1.2)
     adjust_follow_behavior(self.player)
-end
-
-function Companion:clear_active()
-    if not self.active then return end
-    if not self.out_of_energy then
-        local pending_job_line = self.job_done_tick and not self.job_done_announced
-        if pending_job_line and game.tick - self.job_done_tick < 10 then
-            if math.random(1, 20) > 15 then
-                self:say_random("search-for-nearby-work-line")
-            end
-            self.job_done_announced = true
-            self.job_done_tick = nil
-        end
-    end
-    local mod = self.unit_number % storage.companion_update_interval
-    local list = script_data.active_companions[mod]
-    if not list then
-        error("companion clear_active()")
-        return
-    end
-    list[self.unit_number] = nil
-    if not next(list) then
-        script_data.active_companions[mod] = nil
-    end
-    self.active = false
-    self:clear_robots()
-    adjust_follow_behavior(self.player)
-    self.next_idle_line_tick = nil
-    self.test_idle_tick = nil
-    self.test_idle_fired = nil
-    self.job_done_tick = nil
-   
-    return
 end
 
 function Companion:clear_speed_sticker()
@@ -531,7 +400,6 @@ function Companion:get_distance_boost(position)
     local distance = self:distance(position)
     return (distance / 10)
 end
-
 
 function Companion:clear_speed_fx()
     local fx = self.speed_fx
@@ -658,7 +526,7 @@ function Companion:check_equipment()
 
     self.can_attack = false
     for k, equipment in pairs (grid.equipment) do
-        if equipment.type == "companion-defense-equipment" then
+        if equipment.name == "companion-defense-equipment" then
             self.can_attack = true
             break
         end
@@ -670,6 +538,7 @@ function Companion:robot_spawned(robot)
     local id = robot.unit_number
     self:set_active()
     self.robots[id] = robot
+    robot.energy = robot.prototype.get_max_energy(robot.quality)
     if robot.valid then
         robot.destructible = false
         robot.minable_flag = false -- 2.1: LuaEntity.minable is read-only, use minable_flag
@@ -688,102 +557,78 @@ function Companion:robot_spawned(robot)
 end
 
 function Companion:clear_robots()
-    for k, robot in pairs(self.robots) do
-        local r = robot
-        if r and r.valid then
-            local ok = pcall(function()
-                r.mine{
-                    inventory      = self:get_inventory(),
-                    force          = true,
-                    ignore_minable = true
-                }
-            end)
-            if not ok and r.valid then
-                r.destroy()
+    for id, robot in pairs(self.robots) do
+        if robot.valid then
+            -- Recover cargo first; a full trunk must never make recall delete items.
+            for _, inventory_id in ipairs{defines.inventory.robot_cargo, defines.inventory.robot_repair} do
+                local inventory = robot.get_inventory(inventory_id)
+                if inventory then
+                    for i = 1, #inventory do
+                        local stack = inventory[i]
+                        if stack.valid_for_read then
+                            local inserted = self.entity.valid and self.entity.insert(stack) or 0
+                            stack.count = stack.count - inserted
+                            if stack.valid_for_read then
+                                robot.surface.spill_item_stack{position = robot.position, stack = stack,
+                                    enable_looted = true, force = robot.force, allow_belts = false}
+                                stack.clear()
+                            end
+                        end
+                    end
+                end
             end
+            robot.destroy()
         end
-        local beam_ok, beam = pcall(function() return robot.beam end)
-        if beam_ok and beam and beam.valid then
-            beam.destroy()
-        end
-        self.robots[k] = nil
+        self.robots[id] = nil
     end
-    self:clear_robot_stack()
+    if self.entity.valid then self:clear_robot_stack() end
 end
 
 function Companion:move_to_robot_average()
-    if not next(self.robots) then return false end
-
-    local position = { x = 0, y = 0 }
-    local count = 0
-    for k, robot in pairs(self.robots) do
-        if robot and robot.valid then
-            local rp = robot.position
-            position.x = position.x + rp.x
-            position.y = position.y + rp.y
-            count = count + 1
-        else
-            self.robots[k] = nil
-        end
+    -- Robots may work nearby, but must never steer the companion away from its owner.
+    for id, robot in pairs(self.robots) do
+        if not robot.valid then self.robots[id] = nil end
     end
-    if count == 0 then return false end
-
-    position.x = position.x / count
-    position.y = position.y / count
-    self.entity.autopilot_destination = position
-    return true
+    return next(self.robots) ~= nil
 end
 
-function Companion:try_to_refuel()
-    if not self:get_fuel_inventory().is_empty() or self.entity.energy > 0 then return end
-	self:say("Refueling...")
-    if self:distance(self.player.physical_position) <= follow_range then
-        for k, item in pairs (get_fuel_items(self.player)) do
-            if self:find_and_take_from_player({name = item.name, count = item.count}) then
-                return
-            end
-        end
+function Companion:charge()
+    local pd = script_data.player_data[self.player.index]
+    local level = pd and pd.stats and pd.stats.planet_upgrades or 0
+    if self.planet_speed_level ~= level then
+        if self.planet_speed_sticker and self.planet_speed_sticker.valid then self.planet_speed_sticker.destroy() end
+        self.planet_speed_level, self.planet_speed_sticker = level, nil
     end
-    return true
-end
-
-function Companion:update_state_flags()
-    self.out_of_energy = self:try_to_refuel()
-    self.is_in_combat = (game.tick - self.last_attack_tick) < 60
-    self.is_on_low_health = self.entity.get_health_ratio() < 0.7
-    self.is_busy_for_construction = not not (self.is_in_combat or self:move_to_robot_average() or self.moving_to_destination)
-    -- "not not" coerces it into a strict true/false result, never just truthy or falsey 
-    self.is_getting_full = self:get_inventory()[16].valid_for_read
+    if level > 0 then
+        if not (self.planet_speed_sticker and self.planet_speed_sticker.valid) then
+            self.planet_speed_sticker = self.entity.surface.create_entity{
+                name = "companion-planet-speed-" .. level, position = self.entity.position, target = self.entity}
+        end
+        self.planet_speed_sticker.time_to_live = 120
+    end
+    for _, equipment in pairs(self:get_grid().equipment) do
+        equipment.energy = equipment.max_energy
+    end
+    for id, robot in pairs(self.robots) do
+        if robot.valid then robot.energy = robot.prototype.get_max_energy(robot.quality)
+        else self.robots[id] = nil end
+    end
 end
 
 function Companion:search_for_nearby_work()
-    if not self:player_wants_construction() or not self.can_construct then return end
-    if self.entity.surface ~= self.player.physical_surface then return end
-	local radius = storage.max_distance or 100
-	local origin = self.entity.position
-	local area = {{origin.x - radius, origin.y - radius}, {origin.x + radius, origin.y + radius}}
-	self:try_to_find_work(area)
+    if self:player_wants_construction() and self.can_construct and not self.job and not self.is_in_combat then
+        self:try_to_find_work()
+    end
 end
 
 function Companion:search_for_nearby_targets()
-    if not self:player_wants_attack() then return end
-    if not self.can_attack then return end
-    if self.entity.surface ~= self.player.physical_surface then return end
-    local range = 32
-    local origin = self.entity.position
-    local area = {{origin.x - range, origin.y - range}, {origin.x + range, origin.y + range}}
-    --self:say("NICE")
-    self:try_to_find_targets(area)
-end
-
-function Companion:is_idle()
-    -- are we currently working?
-    return not self.is_in_combat or not self.is_busy_for_construction
+    return self:try_to_find_targets()
 end
 
 function Companion:is_busy()
     -- are we doing ANYthing at all?
-    return self.is_in_combat or self.is_busy_for_construction or self.moving_to_destination
+    return self.is_in_combat or self.is_busy_for_construction or self.moving_to_destination or self.job ~= nil
+        or #(self.crafters or {}) > 0 or #(self.managers or {}) > 0
 end
 
 function Companion:say(text)
@@ -814,12 +659,20 @@ function Companion:on_destroyed()
         return
     end
 
-	for k, robot in pairs(self.robots) do
-		local r = robot
-		if r and r.valid then 
-            r.destroy() 
+    visuals.clear(self)
+    workers.destroy(self)
+    self:clear_robots()
+    if self.craft then
+        for i = 1, #self.craft.inventory do
+            local stack = self.craft.inventory[i]
+            if stack.valid_for_read then
+                self.player.physical_surface.spill_item_stack{position = self.player.physical_position,
+                    stack = stack, enable_looted = true, force = self.player.force, allow_belts = false}
+            end
         end
-	end
+        self.craft.inventory.destroy()
+        self.craft = nil
+    end
 
     script_data.companions[self.unit_number] = nil
     local player_data = script_data.player_data[self.player.index]
@@ -844,13 +697,6 @@ end
 
 function Companion:get_inventory()
     local inventory = self.entity.get_inventory(defines.inventory.spider_trunk)
-    inventory.sort_and_merge()
-    return inventory
-end
-
-function Companion:get_fuel_inventory()
-    local inventory = self.entity.get_fuel_inventory()
-    inventory.sort_and_merge()
     return inventory
 end
 
@@ -874,20 +720,32 @@ end
 
 function Companion:try_to_shove_inventory()
     local inventory = self:get_inventory()
+    inventory.sort_and_merge()
     local total_inserted = 0
+    local storage_chests
     for k = 1, 20 do
         local stack = inventory[k]
-        if not (stack and stack.valid_for_read) then break end
-        local inserted = self:insert_to_player_or_vehicle(stack)
-        if inserted == 0 then
-            self.player.print({"inventory-restriction.player-inventory-full", stack.prototype.localised_name, {"inventory-full-message.main"}})
-            break
-        else
-            total_inserted = total_inserted + inserted
-            if inserted == stack.count then
-                stack.clear()
+        if stack.valid_for_read then
+            if stack.name == "companion-construction-robot" then
+                stack.clear() -- Native returning workers are bookkeeping, never player cargo.
             else
-                stack.count = stack.count - inserted
+                local inserted = self:insert_to_player_or_vehicle(stack)
+                if inserted > 0 then stack.count = stack.count - inserted end
+                total_inserted = total_inserted + inserted
+                if stack.valid_for_read then
+                    storage_chests = storage_chests or self:supply_chests()
+                    for _, chest in ipairs(storage_chests) do
+                        if chest.type == "logistic-container" and chest.prototype.logistic_mode == "storage"
+                            and not chest.to_be_deconstructed(self.player.force) then
+                            local filter = chest.storage_filter
+                            if not filter or (filter.name == stack.name and filter.quality == stack.quality.name) then
+                                total_inserted = total_inserted + chest.get_inventory(defines.inventory.chest).transfer_from_stack(stack)
+                                if not stack.valid_for_read then break end
+                            end
+                        end
+                    end
+                end
+                if stack.valid_for_read then self:set_status({"companion-status.cargo-full"}) end
             end
         end
     end
@@ -908,181 +766,70 @@ function Companion:try_to_shove_inventory()
 
 end
 
-function Companion:has_items()
-    return self:get_inventory()[1].valid_for_read
+function Companion:set_status(label)
+    self.entity.custom_status = {diode = defines.entity_status_diode.green, label = label}
 end
 
-function Companion:can_go_inactive()
-    if self.out_of_energy then return end
-    if self:is_busy() then return end
-    if self:has_items() then return end
-    if self:distance(self.player.physical_position) > follow_range then return end
-    return true
+function Companion:cancel_job(defer)
+    if self.job and defer then
+        self.deferred = self.deferred or {}
+        for _, task in ipairs(self.job.tasks) do self.deferred[task.key] = game.tick + task_timeout end
+    end
+    self.job = nil
+    self.current_job_target = nil
+    self.moving_to_destination = nil
+    self.is_busy_for_construction = false
+    self.entity.autopilot_destination = nil
+    self.entity.allow_dispatching_robots = false
+    self:clear_robots()
 end
 
 function Companion:return_to_player()
-
-    if not self.player.valid then return end
-    if self.is_busy_for_construction then return end
-    if self.player.physical_surface ~= self.entity.surface then
-        return
-    end
-
     self.moving_to_destination = nil
-    local distance = self:distance(self.player.physical_position)
-
-    if distance <= follow_range then
+    self.entity.autopilot_destination = nil
+    if self:distance(self.player.physical_position) <= follow_range and not self.job then
         self:try_to_shove_inventory()
-        if not (self.entity.valid) then return end
     end
-
-    if distance > 500 then
-        self:teleport(self.player.physical_position, self.entity.surface)
-    end
-    
-    if self.current_job_target
-    and self:player_wants_construction()
-    and self.can_construct
-    and not self:_inside_job_zone() then
-        if not self.moving_to_destination then
-            self:set_job_destination(self.current_job_target)
-        end
-        return
-    end
-
-    if self:can_go_inactive() then
-        self:clear_active()
-        return
-    end
-
-    self:set_speed(math.max(eff_base() * 0.8, get_player_speed(self.player, 1.0)))
-
-    if self.player.character then
-        self.entity.follow_target = self.player.character
-        return
-    end
-    self.entity.autopilot_destination = self.player.physical_position
+    self:set_speed(math.max(eff_base(self.player) * 0.8, get_player_speed(self.player, 1)))
+    if self.player.character then self.entity.follow_target = self.player.character
+    else self.entity.autopilot_destination = self.player.physical_position end
 end
 
 function Companion:take_item(item, target)
-    local target_inventory = get_inventory(target)
-    if not target_inventory then return end
-
-    while true do
-        local stack = target_inventory.find_item_stack({ name = item.name, quality = item.quality })
+    local inventory = get_inventory(target)
+    if not inventory then return false end
+    while item.count > 0 do
+        local stack = inventory.find_item_stack{name = item.name, quality = item.quality or "normal"}
         if not stack then break end
-
-        local given = self.entity.insert(stack)
-        if given == 0 then break end
-        if given == stack.count then
-            stack.clear()
-        else
-            stack.count = stack.count - given
-        end
-        item.count = item.count - given
-        if item.count <= 0 then break end
+        -- Temporarily bound the source stack so insertion preserves durability and other metadata.
+        local original = stack.count
+        stack.count = math.min(original, item.count)
+        local inserted = self.entity.insert(stack)
+        if original == inserted then stack.clear() else stack.count = original - inserted end
+        item.count = item.count - inserted
+        if inserted == 0 then break end
     end
-
-    if item.count <= 0 then
-        local extra_stacks = 2 -- how much extra material the companion grabs in anticipation of more work
-        local stack_size = (prototypes.item[item.name] and prototypes.item[item.name].stack_size) or 100
-        local extra_to_take = extra_stacks * stack_size
-        local taken_extra = 0
-
-        while taken_extra < extra_to_take do
-            local stack = target_inventory.find_item_stack({ name = item.name, quality = item.quality })
-            if not stack then break end
-            local given = self.entity.insert(stack)
-            if given == 0 then break end
-            if given == stack.count then
-                stack.clear()
-            else
-                stack.count = stack.count - given
-            end
-            taken_extra = taken_extra + given
-        end
-    end
-
-    self.entity.surface.create_entity{
-        name = "inserter-beam",
-        source = self.entity,
-        target = (target.is_player() and target.character) or nil,
-        target_position = target.position,
-        force = self.entity.force,
-        position = self.entity.position,
-        duration = math.min(math.max(math.ceil(item.count / 5), 10), 60),
-        max_length = follow_range + 4
-    }
-
-    return item.count <= 0
+    return item.count == 0
 end
 
 function Companion:take_item_from_train(item, train)
-    for k, wagon in pairs(train.cargo_wagons) do
-        if self:take_item(item, wagon) then
-            return true
-        end
+    for _, wagon in pairs(train.cargo_wagons) do
+        if self:take_item(item, wagon) then return true end
     end
     return false
 end
 
-local angle = function(position_1, position_2)
-    local d_x = (position_2[1] or position_2.x) - (position_1[1] or position_1.x)
-    local d_y = (position_2[2] or position_2.y) - (position_1[2] or position_1.y)
-    return math.atan2(d_y, d_x)
-end
-
-function Companion:get_offset(target_position, length, angle_adjustment)
-        local angle = angle(self.entity.position, target_position)
-        angle = angle + (math.pi / 2) + (angle_adjustment or 0)
-        local x1 = (length * math.sin(angle))
-        local y1 = (-length * math.cos(angle))
-        return {x1 / 10, y1 / 10}
-end
-
-function Companion:set_attack_destination(position)
-    local self_position = self.entity.position
-    local distance = self:distance(position) + dist_bonus
-
-    if math.abs(distance) > 2 then
-        local offset = self:get_offset(position, distance, (distance < 0 and math.pi/4) or 0)
-        self_position.x = self_position.x + offset[1]
-        self_position.y = self_position.y + offset[2]
-        self.moving_to_destination = true
-        self.entity.autopilot_destination = self_position
-    end
-
-    self.last_attack_tick = game.tick
-    self.is_in_combat = true
-    self:set_active()
-end
-
 function Companion:set_job_destination(position)
-    local self_pos = self.entity.position
-    local tx = position.x or position[1]
-    local ty = position.y or position[2]
-    local dx = tx - self_pos.x
-    local dy = ty - self_pos.y
-    local d  = math.sqrt(dx*dx + dy*dy)
-
-    self.current_job_target = position
-
-    if d <= 2 then
+    local cell = self.entity.logistic_cell
+    local reach = cell and cell.construction_radius or 0
+    if self:distance(position) <= reach then
         self.moving_to_destination = nil
+        self.entity.autopilot_destination = nil
         return
     end
-    local _, reach = self:_job_distance_and_range(position)
-    local inner_needed = math.max(0, d - (reach - inner_margin))
-    local step = math.max(staging_step, inner_needed)
-    step = math.min(step, d - 1) 
-
-    local nx, ny = dx / d, dy / d
-    local dest = { x = self_pos.x + nx * step, y = self_pos.y + ny * step }
-
-    self.moving_to_destination = true
     self.entity.follow_target = nil
-    self.entity.autopilot_destination = dest
-    self.is_busy_for_construction = true
+    self.entity.autopilot_destination = position
+    self.moving_to_destination = true
     self:set_active()
 end
 
@@ -1095,71 +842,73 @@ function Companion:player_wants_construction()
 end
 
 function Companion:attack(entity, projectile_count)
-    if not self:player_wants_attack() then return end
-
-    projectile_count = projectile_count or 3  -- default if not provided
-
-    local position = self.entity.position
-    for i = 1, projectile_count do
-        local offset = (math.random() * 0.5) - 0.25
-
-        local projectile = self.entity.surface.create_entity{
-            name = "companion-projectile",
-            position = {position.x, position.y - 1.5},
-            speed = 0.05,
-            force = self.entity.force,
-            target = entity,
-            max_range = 55
-        }
-
-        projectile.orientation = projectile.orientation + offset
-
-        local beam = self.entity.surface.create_entity{
-            name = "inserter-beam",
-            source = self.entity,
-            target = self.entity,
-            position = {0, 0}
-        }
-        beam.set_beam_target(projectile)
+    if entity.valid and tasks.distance(entity.position, self.player.physical_position) <= abandon_job_distance then
+        self:deploy_combat_robots()
     end
-
-    self:set_attack_destination(entity.position)
-    self.last_attack_tick = game.tick
 end
 
-local ghost_types =
-{
-    ["entity-ghost"] = true,
-    ["tile-ghost"] = true
-}
-
-local item_request_types =
-{
-    ["entity-ghost"] = true,
-    ["item-request-proxy"] = true
-
-}
-
-function Companion:try_to_find_targets(search_area)
-
-    local entities = self.entity.surface.find_entities_filtered
-    {
-        area = search_area,
-        is_military_target = true
-    }
-
-    local our_force = self.entity.force
-    for k, entity in pairs (entities) do
-        if not entity.valid then break end
-        if entity.destructible then
-            local force = entity.force
-            if not (force == our_force or force.name == "neutral" or our_force.get_cease_fire(entity.force)) then
-                self:set_attack_destination(entity.position)
-                return
-            end
+function Companion:deploy_combat_robots()
+    if not self:player_wants_attack() or not self.can_attack or not self.player.character then return end
+    if self.player.physical_surface.platform or self.entity.surface ~= self.player.physical_surface then return end
+    local pd = script_data.player_data[self.player.index]
+    pd.combat_robots = pd.combat_robots or {}
+    pd.combat_sources = pd.combat_sources or {}
+    pd.combat_slots = pd.combat_slots or {}
+    for id, robot in pairs(pd.combat_robots) do
+        if not robot.valid then pd.combat_robots[id] = nil; pd.combat_sources[id] = nil
+        elseif robot.surface ~= self.player.physical_surface then
+            robot.destroy()
+            pd.combat_robots[id] = nil
+            pd.combat_sources[id] = nil
         end
     end
+    local stats = pd.stats or set_companion_stats(self.player)
+    local banks = 0
+    for _, equipment in pairs(self.entity.grid.equipment) do
+        if equipment.name == "companion-defense-equipment" then banks = banks + 1 end
+    end
+    local limit = math.min(4, math.ceil(stats.attack_count * banks / 4))
+    if limit == 0 or game.tick < (self.next_combat_deployment or 0) then return end
+    local count = 0
+    for id in pairs(pd.combat_robots) do
+        if pd.combat_sources[id] == self.unit_number then count = count + 1 end
+    end
+    for i = count + 1, limit do
+        local robot = self.entity.surface.create_entity{
+            name = "companion-combat-robot",
+            position = {self.entity.position.x, self.entity.position.y - (self.visuals and self.visuals.altitude or 2)},
+            force = self.player.force, target = self.player.character}
+        if robot then
+            robot.combat_robot_owner = self.player.character
+            pd.combat_robots[robot.unit_number] = robot
+            pd.combat_sources[robot.unit_number] = self.unit_number
+            pd.combat_slots[robot.unit_number] = {index = i, count = limit}
+        end
+    end
+    self.next_combat_deployment = game.tick + 120
+end
 
+function Companion:try_to_find_targets()
+    if not self:player_wants_attack() or not self.can_attack or self.player.physical_surface.platform then return false end
+    local player = self.player
+    if self.entity.surface ~= player.physical_surface then return false end
+    local target, best
+    local pos = player.physical_position
+    for _, entity in pairs(player.physical_surface.find_entities_filtered{
+        position = pos, radius = abandon_job_distance, is_military_target = true}) do
+        local force = entity.force
+        if entity.destructible and entity.type ~= "unit-spawner" and force ~= player.force and force.name ~= "neutral"
+            and not player.force.get_friend(force) and not player.force.get_cease_fire(force) then
+            local mobile = entity.type == "unit" or entity.type == "spider-unit" or entity.type == "combat-robot"
+            -- Mobile threats and attacking units outrank stationary nests.
+            local score = (mobile and 0 or 100) + tasks.distance(entity.position, pos)
+            if not best or score < best then target, best = entity, score end
+        end
+    end
+    if not target then return false end
+    self:deploy_combat_robots()
+    if not self.job then self:set_status({"companion-status.defending"}) end
+    return true
 end
 
 function get_inventory(entity)
@@ -1172,6 +921,8 @@ function get_inventory(entity)
         return entity.get_inventory(defines.inventory.spider_trunk)
     elseif entity.type == "car" then
         return entity.get_inventory(defines.inventory.car_trunk)
+    elseif entity.type == "logistic-container" or entity.type == "container" then
+        return entity.get_inventory(defines.inventory.chest)
     elseif entity.type == "cargo-wagon" then
         return entity.get_inventory(defines.inventory.cargo_wagon)
     else
@@ -1179,44 +930,176 @@ function get_inventory(entity)
 	end
 end
 
+function Companion:supply_network()
+    local surface = self.player.physical_surface
+    if surface.platform or self.entity.surface ~= surface then return nil end
+    local network = surface.find_logistic_network_by_position(self.player.physical_position, self.player.force)
+    if network and network == surface.find_logistic_network_by_position(self.entity.position, self.player.force) then
+        return network
+    end
+end
+
+function Companion:supply_chests()
+    local network = self:supply_network()
+    if not network then return {} end
+    local pd = script_data.player_data[self.player.index]
+    if pd.chest_network ~= network or game.tick >= (pd.next_chest_scan or 0) then
+        pd.chest_network, pd.next_chest_scan, pd.chests = network, game.tick + 60, {}
+        local inventories = {}
+        for _, chest in pairs(self.player.physical_surface.find_entities_filtered{
+            force = self.player.force, type = {"container", "logistic-container", "infinity-container", "linked-container"}}) do
+            local inventory = chest.get_inventory(defines.inventory.chest)
+            if inventory and not inventories[inventory]
+                and chest.surface.find_logistic_network_by_position(chest.position, chest.force) == network then
+                inventories[inventory] = true
+                pd.chests[#pd.chests + 1] = chest
+            end
+        end
+        table.sort(pd.chests, function(a, b) return a.unit_number < b.unit_number end)
+    end
+    local chests = {}
+    for _, chest in ipairs(pd.chests) do
+        if chest.valid and chest.force == self.player.force and not chest.to_be_deconstructed(self.player.force)
+            and chest.surface.find_logistic_network_by_position(chest.position, chest.force) == network then
+            chests[#chests + 1] = chest
+        end
+    end
+    return chests
+end
+
+function Companion:available_items(item)
+    local query = {name = item.name, quality = item.quality or "normal"}
+    local count = self:get_inventory().get_item_count(query)
+    for _, chest in ipairs(self:supply_chests()) do count = count + chest.get_inventory(defines.inventory.chest).get_item_count(query) end
+    if self:distance(self.player.physical_position) <= follow_range then
+        local inventory = self.player.get_main_inventory()
+        if inventory then count = count + inventory.get_item_count(query) end
+        local vehicle = self.player.vehicle
+        if vehicle then
+            if vehicle.train then
+                for _, wagon in pairs(vehicle.train.cargo_wagons) do
+                    count = count + wagon.get_inventory(defines.inventory.cargo_wagon).get_item_count(query)
+                end
+            else
+                local trunk = get_inventory(vehicle)
+                if trunk then count = count + trunk.get_item_count(query) end
+            end
+        end
+    end
+    return count
+end
+
 function Companion:find_and_take_from_player(item)
-    local count = self.player.get_item_count{ name = item.name, quality = (item.quality or "normal") }
-    if count >= item.count then
-        if self:take_item(item, self.player) then
-            return true
-        end
+    for _, chest in ipairs(self:supply_chests()) do
+        if self:take_item(item, chest) then return true end
     end
-
+    if self:distance(self.player.physical_position) > follow_range then return false end
+    if self:take_item(item, self.player) then return true end
     local vehicle = self.player.vehicle
-    if vehicle then
-        local train = vehicle.train
-        if not train then
-            local target_inventory = get_inventory(vehicle)
-            local count = target_inventory.get_item_count{ name = item.name, quality = (item.quality or "normal") }
-            if count >= item.count then
-                if self:take_item(item, vehicle) then
-                    return true
+    if not vehicle then return false end
+    if vehicle.train then return self:take_item_from_train(item, vehicle.train) end
+    return self:take_item(item, vehicle)
+end
+
+local function transfer_item(item, source, destination)
+    local remaining = item.count
+    while remaining > 0 do
+        local stack = source.find_item_stack{name = item.name, quality = "normal"}
+        if not stack then break end
+        local original = stack.count
+        stack.count = math.min(original, remaining)
+        local inserted = destination.insert(stack)
+        if original == inserted then stack.clear() else stack.count = original - inserted end
+        remaining = remaining - inserted
+        if inserted == 0 then break end
+    end
+    return item.count - remaining
+end
+
+function Companion:try_to_craft(item, keys, recipes)
+    self.crafters = self.crafters or {}
+    local stats = script_data.player_data[self.player.index].stats or set_companion_stats(self.player)
+    local technology = self.player.force.technologies["companion-crafting-speed-1"]
+    local capacity = 6 + stats.planet_upgrades + (technology and technology.level - 1 or 0)
+    if #self.crafters >= capacity or item.quality ~= "normal" or not self.player.character then return false end
+    local available, sources = {}, {self:get_inventory()}
+    for _, chest in ipairs(self:supply_chests()) do sources[#sources + 1] = chest.get_inventory(defines.inventory.chest) end
+    sources[#sources + 1] = self.player.get_main_inventory()
+    for _, inventory in ipairs(sources) do
+        for _, stack in pairs(inventory.get_contents()) do
+            if stack.quality == "normal" then available[stack.name] = (available[stack.name] or 0) + stack.count end
+        end
+    end
+    local plan = crafting.plan(recipes or crafting.recipes(self.player), available, item.name, item.count)
+    if not plan then return false end
+    local function slots(items)
+        local count = 0
+        for name, amount in pairs(items) do count = count + math.ceil(amount / prototypes.item[name].stack_size) end
+        return count
+    end
+    local inventory = game.create_inventory(math.max(1, slots(plan.ingredients), slots(plan.outputs)))
+    local transfers = {}
+    for name, count in pairs(plan.ingredients) do
+        local remaining = count
+        for _, source in ipairs(sources) do
+            local moved = transfer_item({name = name, count = remaining}, source, inventory)
+            transfers[#transfers + 1] = {source = source, name = name, count = moved}
+            remaining = remaining - moved
+            if remaining == 0 then break end
+        end
+        if remaining > 0 then
+            for _, transfer in ipairs(transfers) do
+                transfer_item({name = transfer.name, count = transfer.count}, inventory, transfer.source)
+            end
+            for i = 1, #inventory do
+                if inventory[i].valid_for_read then
+                    self.entity.surface.spill_item_stack{position = self.entity.position, stack = inventory[i],
+                        enable_looted = true, force = self.entity.force, allow_belts = false}
                 end
             end
-        else
-            local train_contents = train.get_contents()
+            inventory.destroy()
+            return false
+        end
+    end
+    local worker = workers.spawn(self, "companion-crafter", inventory)
+    local slots = {}
+    for _, other in ipairs(self.crafters) do slots[other.slot or 1] = true end
+    worker.slot = 1
+    while slots[worker.slot] do worker.slot = worker.slot + 1 end
+    worker.craft = {inventory = inventory, plan = plan, remaining = math.ceil(plan.energy * 60),
+        last_tick = game.tick, item = item.name, task_keys = keys, count = item.count}
+    self.crafters[#self.crafters + 1] = worker
+    self:return_to_player()
+    self:set_status({"companion-status.crafting", prototypes.item[item.name].localised_name})
+    return true
+end
 
-            local count = 0
+function Companion:update_crafting()
+    self.crafters = self.crafters or {}
+    -- Preserve ingredients and progress in saves made before worker crafting.
+    if self.craft then
+        local worker = workers.spawn(self, "companion-crafter", self.craft.inventory)
+        worker.craft = self.craft
+        self.crafters[#self.crafters + 1], self.craft = worker, nil
+    end
+    local stats = script_data.player_data[self.player.index].stats or set_companion_stats(self.player)
+    workers.update_crafters(self, crafting_speed(self.player, stats.planet_upgrades))
+end
 
-            for _, item_in_train in pairs(train_contents) do
-                if (item_in_train.name == item.name and item_in_train.quality == item.quality) then
-                    count = item_in_train.count
-                    break
-                end
-            end
-
-            if count >= item.count then
-                if self:take_item_from_train(item, train) then
-                    return true
-                end
+function Companion:ensure_items(item)
+    local query = {name = item.name, quality = item.quality}
+    local supplied = self:get_inventory().get_item_count(query)
+    for _, robot in pairs(self.robots) do
+        if robot.valid then
+            for _, inventory_id in ipairs{defines.inventory.robot_cargo, defines.inventory.robot_repair} do
+                local inventory = robot.get_inventory(inventory_id)
+                if inventory then supplied = supplied + inventory.get_item_count(query) end
             end
         end
     end
+    local missing = item.count - supplied
+    if missing <= 0 then return true end
+    return self:find_and_take_from_player{name = item.name, quality = item.quality, count = missing}
 end
 
 function Companion:on_player_placed_equipment(event)
@@ -1230,7 +1113,7 @@ function Companion:on_player_removed_equipment(event)
 end
 
 function Companion:teleport(position, surface)
-    self:clear_robots()
+    self:cancel_job(false)
     self:clear_speed_sticker()
     self:clear_speed_fx()  
     self.entity.teleport(position, surface)
@@ -1240,6 +1123,13 @@ end
 function Companion:change_force(force)
 
     self.entity.force = force
+    workers.park(self)
+    for _, group in ipairs{self.crafters or {}, self.managers or {}} do
+        for _, worker in ipairs(group) do
+            if worker.entity.valid then worker.entity.force = force end
+            if worker.craft then worker.craft.finished = true end
+        end
+    end
     for k, robot in pairs (self.robots) do
         if robot.valid then
             robot.force = force
@@ -1266,493 +1156,185 @@ local on_built_entity = function(event)
 end
 
 local on_entity_destroyed = function(event)
-    local companion = get_companion(event.unit_number)
+    local companion = get_companion(event.useful_id)
     if not companion then return end
     companion:on_destroyed()
 end
 
-local search_offsets = {}
-local search_distance = 100
-local search_divisions = 7
-
-local setup_search_offsets = function()
-    local r = search_distance / search_divisions
-    search_offsets = {}
-    for y = 0, (search_divisions - 1) do
-        local offset_y = (y - (search_divisions / 2)) * r
-        for x = 0, (search_divisions - 1) do
-            local offset_x = (x - (search_divisions / 2)) * r
-            local area = {{offset_x, offset_y}, {offset_x + r, offset_y + r}}
-            table.insert(search_offsets, area)
-        end
-    end
-
-    --table.sort(search_offsets, function(a, b) return distance(a[1], {0,0}) < distance(b[1], {0,0}) end)
-
-    for k, v in pairs (search_offsets) do
-        local i = (((k * 87)) % #search_offsets) + 1
-        search_offsets[k], search_offsets[i] = search_offsets[i], search_offsets[k]
-    end
-end
-setup_search_offsets()
-
-local get_free_companion_for_construction = function(player_data)
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
-        if companion and (not companion.active) and companion.can_construct and not companion:move_to_robot_average() then
-            return companion
-        end
-    end
-end
-
 function Companion:escape_danger(threat_pos)
-    if self:distance(self.player.physical_position) > abandon_job_distance then
-        self.current_job_target = nil
-        self.moving_to_destination = nil
-        self.entity.autopilot_destination = nil
-        self:clear_robots()
-        self:return_to_player()
-        return
-    end
-
-    if not threat_pos or not threat_pos.x then
-        self.current_job_target = nil
-        self.moving_to_destination = nil
-        self.entity.autopilot_destination = nil
-        self:return_to_player()
-        return
-    end
-
-    local self_pos = self.entity.position
-    local dx = self_pos.x - threat_pos.x
-    local dy = self_pos.y - threat_pos.y
-    local d  = math.sqrt(dx*dx + dy*dy)
-    if d < 0.001 then d = 0.001 end
-
-    local retreat = 8
-    local dest = { x = self_pos.x + (dx/d) * retreat, y = self_pos.y + (dy/d) * retreat }
-
-    self.current_job_target = nil
-    self.moving_to_destination = true
-    self.entity.follow_target = nil
-    self.entity.autopilot_destination = dest
-
-    self:set_active()
+    self:cancel_job(false)
+    self:return_to_player()
 end
 
-
---------------------------- Core Logic ---------------------------
-
-function Companion:update() 
-    if self.flagged_for_equipment_changed then
-        self:check_equipment()
+function Companion:update()
+    if not self.player.connected or not self.player.character or self.player.physical_surface.platform then
+        if self.craft then self.craft.last_tick = game.tick end
+        workers.park(self)
+        if self.job or next(self.robots) then self:cancel_job(false) end
+        self.entity.follow_target = nil
+        self.entity.autopilot_destination = nil
+        self:set_status({"companion-status.parked"})
+        return
     end
-    
-    do
-        local pos = self.entity.position
-        if self.moving_to_destination then
-            local lp = self._last_auto_pos or pos
-            if (math.abs(pos.x - lp.x) + math.abs(pos.y - lp.y)) < 0.05 then
-                self._stalled_ticks = (self._stalled_ticks or 0) + 1
-            else
-                self._stalled_ticks = 0
-            end
-            self._last_auto_pos = pos
-            if (self._stalled_ticks or 0) > 120 then
-                self.moving_to_destination = nil
-                self.entity.autopilot_destination = nil
-            end
-        else
-            self._stalled_ticks = 0
-            self._last_auto_pos = pos
+    self.entity.minable_flag = false
+    self.entity.destructible = false
+    if self.flagged_for_equipment_changed then self:check_equipment() end
+    if self.entity.surface ~= self.player.physical_surface then
+        self:cancel_job(false)
+        self:teleport(self.player.physical_position, self.player.physical_surface)
+    end
+    local distance = self:distance(self.player.physical_position)
+    if distance > follow_range then self.away_since = self.away_since or game.tick
+    else self.away_since = nil end
+    if distance > abandon_job_distance or (self.away_since and game.tick - self.away_since >= task_timeout) then
+        self:cancel_job(true)
+        self:set_status({"companion-status.following"})
+        self:return_to_player()
+        -- A blocked path must not strand the companion; owner proximity wins after the lease expires.
+        if distance > abandon_job_distance or game.tick - self.away_since >= task_timeout then
+            self:teleport(self.player.physical_position, self.player.physical_surface)
+            self.away_since = nil
         end
+        return
     end
-
-    local was_busy = self.is_busy_for_construction
-    local was_in_combat = self.is_in_combat
-
-    self:update_state_flags()
-    
-    if self.current_job_target then 
-    -- if the player is too far from the job, ignore it and follow player
-        local p = self.player.physical_position
-        local t = self.current_job_target
-        local tx = t[1] or t.x
-        local ty = t[2] or t.y
-        local dx = p.x - tx
-        local dy = p.y - ty
-        local d = (dx * dx + dy * dy) ^ 0.5
-        if d > abandon_job_distance then
-            self.moving_to_destination = nil
-            self.current_job_target = nil
-            self.entity.autopilot_destination = nil
-            self:clear_robots()
-            self:return_to_player()
-            return
-        end
-    end
-    
-    if self:player_wants_construction()
-    and self.can_construct
-    and next(self.robots)
-    and not self.moving_to_destination
-    then -- ensures we complete all jobs in range before moving on to the next location
-        local radius = storage.max_distance or 100
-        local origin = self.entity.position
-        local area = {{origin.x - radius, origin.y - radius}, {origin.x + radius, origin.y + radius}}
-        local hold = self.moving_to_destination
-        self.moving_to_destination = true
-        self:try_to_find_work(area)
-        self.moving_to_destination = hold
-    end
-    
-    if was_busy and not self.is_busy_for_construction then
-        -- So we were building, and now we are finished, lets try to find some work nearby
+    local defending = self:try_to_find_targets()
+    self.is_in_combat = false
+    -- Native jobs from older saves return their cargo before explicit workers take over.
+    if self.job or next(self.robots) then self:cancel_job(false) end
+    if game.tick >= (self.next_search_tick or 0) then
+        self.next_search_tick = game.tick + math.max(15, storage.companion_update_interval)
         self:search_for_nearby_work()
     end
-
-    if was_in_combat and not self.is_in_combat then
-        -- Same as above
-        self:search_for_nearby_targets()
-    end
-
-    if self.is_getting_full or self.is_on_low_health or not self:is_busy() then
-        self.moving_to_destination = nil
+    if not self.job then
+        if defending then self:set_status({"companion-status.defending"}) end
         self:return_to_player()
     end
 end
 
-function Companion:try_to_find_work(search_area)
-    local force   = self.entity.force
-    local surface = self.entity.surface
-
-    local current_items = self:get_inventory().get_contents()
-    local can_take_from_player = self:distance(self.player.physical_position) <= follow_range
-        and self.entity.surface == self.player.physical_surface
-
-    local function has_or_can_take(item)
-        if self:get_inventory().get_item_count{
-            name    = item.name,
-            quality = (item.quality or "normal")
-        } >= (item.count or 1) then
-            return true
-        end
-        if not can_take_from_player then return false end
-        return self:find_and_take_from_player{
-            name    = item.name,
-            count   = (item.count or 1),
-            quality = (item.quality or "normal")
-        }
+function Companion:try_to_find_work()
+    if self.player.physical_surface.platform or not self.player.character then return end
+    if self.job or self.is_in_combat or not self.can_construct or not self:player_wants_construction() then return end
+    if self:distance(self.player.physical_position) > follow_range then return end
+    local pd = script_data.player_data[self.player.index]
+    local candidates = tasks.collect(self.player, self.entity, pd.recent_area, pd.recent_tick)
+    self.seen = self.seen or {}
+    self.deferred = self.deferred or {}
+    local seen = {}
+    local eligible, missing, craftable, supplies = {}, nil, {}, {}
+    local function available(item)
+        local key = item.name .. ":" .. item.quality
+        if supplies[key] == nil then supplies[key] = self:available_items(item) end
+        return supplies[key]
     end
-
-    local attempted_ghost_names   = {}
-    local attempted_upgrade_names = {}
-    local attempted_proxy_items   = {}
-    local repair_attempted        = false
-    local deconstruction_attempted = false
-    local max_item_type_count     = 10
-
-    local function pick(pos)
-        if not self.moving_to_destination then
-            self:set_job_destination(pos)
-            return true
+    for _, task in ipairs(candidates) do
+        seen[task.key] = self.seen[task.key] or game.tick
+        task.age = math.min(30, (game.tick - seen[task.key]) / 60)
+        local claimed = false
+        for _, companion in pairs(script_data.companions) do
+            if workers.claimed(companion, task.key) then claimed = true; break end
         end
-    end
-
-    local function bots_claimed(entity, kind)
-        local claimed =
-            (kind == "construct"   and entity.is_registered_for_construction and entity.is_registered_for_construction())
-         or (kind == "upgrade"     and entity.is_registered_for_upgrade      and entity.is_registered_for_upgrade())
-         or (kind == "repair"      and entity.is_registered_for_repair       and entity.is_registered_for_repair())
-         or (kind == "decon"       and entity.is_registered_for_deconstruction and entity.is_registered_for_deconstruction(force))
-         or false
-
-        if not claimed then
-            return false
-        end
-
-        local net = surface.find_logistic_network_by_position(entity.position, force)
-        if not net then
-            return false
-        end
-
-        if (net.available_construction_robots or 0) <= 0 then
-            return false
-        end
-
-        return true
-    end
-
-    local decon = surface.find_entities_filtered{
-        area                = search_area,
-        force               = force,
-        to_be_deconstructed = true
-    }
-    for _, entity in pairs(decon) do
-        if not entity.valid then break end
-        if (entity.type ~= "vehicle") or (entity.speed and entity.speed < 0.4) then
-            if not bots_claimed(entity, "decon") then
-                deconstruction_attempted = true
-                if pick(entity.position) then return end
+        if not claimed and game.tick >= (self.deferred[task.key] or 0) then
+            for _, item in ipairs(task.alternatives or {}) do
+                if available(item) >= item.count then task.item = item; break end
             end
-        end
-    end
-
-    local ghosts = surface.find_entities_filtered{
-        area  = search_area,
-        force = force,
-        type  = {"entity-ghost", "tile-ghost"}
-    }
-    for _, entity in pairs(ghosts) do
-        if (max_item_type_count or 0) <= 0 then return end
-        if not entity.valid then break end
-
-        if bots_claimed(entity, "construct") then goto continue_ghost end
-
-        local entity_type = entity.type
-        local quality     = (entity.quality and entity.quality.name) or "normal"
-
-        if ghost_types[entity_type] then
-            local ghost_name = entity.ghost_name
-            if not attempted_ghost_names[ghost_name] then
-                local proto = entity.ghost_prototype
-                local items = proto and proto.items_to_place_this
-                local item  = items and items[1]
-                if item then
-                    item.quality = quality
-                    if has_or_can_take(item) then
-                        if pick(entity.position) then return end
-                        max_item_type_count = max_item_type_count - 1
-                        attempted_ghost_names[ghost_name] = 1
-                    else
-                        attempted_ghost_names[ghost_name] = 0
-                    end
-                else
-                    attempted_ghost_names[ghost_name] = 0
-                end
-            end
-            if item_request_types[entity_type] and attempted_ghost_names[ghost_name] == 1 then
-                local items = entity.item_requests
-                for _, item in pairs(items) do
-                    if not attempted_proxy_items[item.name] then
-                        attempted_proxy_items[item.name] = true
-                        if has_or_can_take(item) then
-                            max_item_type_count = max_item_type_count - 1
-                        end
-                    end
-                end
-            end
-        end
-        ::continue_ghost::
-    end
-
-    local upgrades = surface.find_entities_filtered{
-        area           = search_area,
-        force          = force,
-        to_be_upgraded = true
-    }
-    for _, entity in pairs(upgrades) do
-        if not entity.valid then break end
-        if bots_claimed(entity, "upgrade") then goto continue_upgrade end
-
-        local quality        = (entity.quality and entity.quality.name) or "normal"
-        local upgrade_target = entity.get_upgrade_target()
-        if upgrade_target and not attempted_upgrade_names[upgrade_target.name] then
-            if upgrade_target.name == entity.name then
-                if pick(entity.position) then return end
+            if not task.item or available(task.item) >= task.item.count then
+                task.onboard = not task.item or self:get_inventory().get_item_count(task.item) >= task.item.count
+                eligible[#eligible + 1] = task
             else
-                local items = upgrade_target.items_to_place_this
-                local item  = items and items[1]
-                if item then
-                    item.quality = quality
-                    if has_or_can_take(item) then
-                        if pick(entity.position) then return end
-                        max_item_type_count = max_item_type_count - 1
+                missing = missing or task.item
+                if task.kind == "build" or task.kind == "upgrade" then craftable[#craftable + 1] = task end
+            end
+        end
+    end
+    self.seen = seen
+    for key, deadline in pairs(self.deferred) do
+        if not seen[key] or deadline <= game.tick then self.deferred[key] = nil end
+    end
+    table.sort(eligible, tasks.less)
+    self.managers = self.managers or {}
+    local assigned_operations = {}
+    for _, first in ipairs(eligible) do
+        if #self.managers >= 6 then break end
+        if not assigned_operations[first.key] then
+            local batch, required = {}, {}
+            for _, task in ipairs(eligible) do
+                if not assigned_operations[task.key] and task.priority == first.priority and #batch < 32
+                    and tasks.distance(first.entity.position, task.entity.position) <= 12 then
+                    local item = task.item
+                    local key = item and (item.name .. ":" .. item.quality)
+                    local count = item and ((required[key] and required[key].count or 0) + item.count)
+                    if not item or available(item) >= count then
+                        batch[#batch + 1] = task
+                        if item then required[key] = {name = item.name, quality = item.quality, count = count} end
                     end
                 end
             end
-            attempted_upgrade_names[upgrade_target.name] = true
-        end
-        ::continue_upgrade::
-    end
-
-    if not repair_attempted and not self.moving_to_destination then
-        local candidates = surface.find_entities_filtered{
-            area  = search_area,
-            force = force,
-            limit = 200
-        }
-        for _, entity in pairs(candidates) do
-            local needs_repair = (entity.get_health_ratio and ((entity.get_health_ratio() or 1) < 1)) or false
-            if needs_repair and not bots_claimed(entity, "repair") then
-                for name in pairs(get_repair_tools()) do
-                    if has_or_can_take({name = name, count = 1}) then
-                        if pick(entity.position) then return end
-                        break
-                    end
+            if #batch > 0 then
+                local slots = #batch
+                for _, item in pairs(required) do slots = slots + math.ceil(item.count / prototypes.item[item.name].stack_size) end
+                local inventory = game.create_inventory(slots)
+                local supplied = true
+                for _, item in pairs(required) do
+                    if self:ensure_items(item) then transfer_item(item, self:get_inventory(), inventory) end
+                    if inventory.get_item_count(item) ~= item.count then supplied = false end
                 end
-                break
+                if supplied then
+                    local worker = workers.spawn(self, "companion-task-manager", inventory)
+                    worker.tasks, worker.started = batch, game.tick
+                    self.managers[#self.managers + 1] = worker
+                    for key, item in pairs(required) do supplies[key] = available(item) - item.count end
+                    for _, task in ipairs(batch) do assigned_operations[task.key] = true end
+                elseif workers.return_inventory(self, inventory) then inventory.destroy()
+                else self.managers[#self.managers + 1] = workers.spawn(self, "companion-task-manager", inventory) end
             end
         end
     end
-
-    local proxies = surface.find_entities_filtered{
-        area  = search_area,
-        force = force,
-        type  = "item-request-proxy"
-    }
-    for _, entity in pairs(proxies) do
-        if not entity.valid then break end
-        if bots_claimed(entity, "construct") then goto continue_proxy end
-        local items = entity.item_requests
-        for _, item in pairs(items) do
-            if not attempted_proxy_items[item.name] then
-                attempted_proxy_items[item.name] = true
-                if has_or_can_take(item) then
-                    if pick(entity.position) then return end
-                    max_item_type_count = max_item_type_count - 1
+    for _, task in ipairs(craftable) do task.onboard = false end
+    table.sort(craftable, tasks.less)
+    local assigned, failed_crafts = {}, {}
+    local recipes = #craftable > 0 and crafting.recipes(self.player) or nil
+    for _, task in ipairs(craftable) do
+        if not assigned[task.key] then
+            local batch, count = {task}, task.item.count
+            for _, other in ipairs(craftable) do
+                if other ~= task and not assigned[other.key] and other.priority == task.priority
+                    and other.item.name == task.item.name and other.item.quality == task.item.quality
+                    and count + other.item.count <= 8 and tasks.distance(other.entity.position, task.entity.position) <= 8 then
+                    batch[#batch + 1], count = other, count + other.item.count
                 end
             end
-        end
-        ::continue_proxy::
-    end
-
-    local attempted_cliff_names = {}
-    local neutral_entities = surface.find_entities_filtered{
-        area                = search_area,
-        force               = "neutral",
-        to_be_deconstructed = true
-    }
-    for _, entity in pairs(neutral_entities) do
-        if not entity.valid then break end
-        if entity.type == "cliff" then
-            local claimed = bots_claimed(entity, "decon")
-            if not attempted_cliff_names[entity.name] and not claimed then
-                local item_name = entity.prototype.cliff_explosive_prototype
-                if has_or_can_take({name = item_name, count = 1}) then
-                    if pick(entity.position) then return end
-                    max_item_type_count = max_item_type_count - 1
+            while #batch > 0 do
+                local keys = {}
+                for _, target in ipairs(batch) do keys[target.key] = true end
+                local attempt = task.item.name .. ":" .. task.item.quality .. ":" .. count
+                if not failed_crafts[attempt] and self:try_to_craft({name = task.item.name, quality = task.item.quality, count = count}, keys, recipes) then
+                    for key in pairs(keys) do assigned[key] = true end
+                    break
                 end
-                attempted_cliff_names[entity.name] = true
+                failed_crafts[attempt] = true
+                count = count - batch[#batch].item.count
+                batch[#batch] = nil
             end
-        elseif not deconstruction_attempted and not claimed then
-            deconstruction_attempted = true
-            if pick(entity.position) then return end
         end
     end
-end
-
-local perform_job_search = function(player, player_data)
-
-    if not player.is_shortcut_toggled("companion-construction-toggle") then return end
-    local free_companion = get_free_companion_for_construction(player_data)
-    if not free_companion then return end
-
-    if not player.controller_type or player.controller_type    ~= defines.controllers.character then return end
-
-    player_data.last_job_search_offset = player_data.last_job_search_offset + 1
-    local area = search_offsets[player_data.last_job_search_offset]
-    if not area then
-        player_data.last_job_search_offset = 0
-        return
-    end
-
-    local position = player.physical_position
-    local search_area = {{area[1][1] + position.x, area[1][2] + position.y}, {area[2][1] + position.x, area[2][2] + position.y}}
-
-    free_companion:try_to_find_work(search_area)
-end
-
-local perform_attack_search = function(player, player_data)
-
-    if not player.is_shortcut_toggled("companion-attack-toggle") then return end
-
-    if not player.controller_type or player.controller_type    ~= defines.controllers.character then return end
-
-    local free_companion
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
-        if companion and not companion.active and companion.can_attack then
-            free_companion = companion
-            break
-        end
-    end
-    if not free_companion then return end
-
-    player_data.last_attack_search_offset = player_data.last_attack_search_offset + 1
-    local area = search_offsets[player_data.last_attack_search_offset]
-    if not area then
-        player_data.last_attack_search_offset = 0
-        return
-    end
-
-    local position = player.physical_position
-    local search_area = {{area[1][1] + position.x, area[1][2] + position.y}, {area[2][1] + position.x, area[2][2] + position.y}}
-
-    free_companion:try_to_find_targets(search_area)
-end
-
-local process_specific_job_queue = function(player_index, player_data)
-
-    local player = game.players[player_index]
-    if not player.is_shortcut_toggled("companion-construction-toggle") then
-        script_data.specific_job_search_queue[player_index] = nil
-        return
-    end
-
-    local areas = script_data.specific_job_search_queue[player_index]
-    local i, area = next(areas)
-
-    if not i then
-        script_data.specific_job_search_queue[player_index] = nil
-        return
-    end
-
-    local free_companion = get_free_companion_for_construction(player_data)
-    if not free_companion then
-        return
-    end
-
-    --free_companion:say(i)
-	if not storage.max_distance then storage.max_distance = 250 end
-    if free_companion:distance(area[1]) < storage.max_distance then
-        free_companion:try_to_find_work(area)
-    end
-
-    areas[i] = nil
+    if #self.managers > 0 or #(self.crafters or {}) > 0 then self:set_active()
+    else self:set_status(missing and {"companion-status.missing", prototypes.item[missing.name].localised_name}
+        or {"companion-status.following"}) end
 
 end
 
 local check_job_search = function(event)
-    if not next(script_data.player_data) then return end
-
-    local job_search_queue = script_data.specific_job_search_queue
-    local players = game.players
-
-    for player_index, player_data in pairs(script_data.player_data) do
-        local player = players[player_index]
-        if player.connected then
-            local areas = job_search_queue[player_index]
-
-            if areas then
-                for i = 1, (storage.queue_stride or 8) do
-                    if not job_search_queue[player_index] then break end
-                    process_specific_job_queue(player_index, player_data)
-                end
-            else
-                for i = 1, (storage.job_stride or 12) do
-                    perform_job_search(player, player_data)
-                end
-            end
-            for i = 1, (storage.attack_stride or 6) do
-                perform_attack_search(player, player_data)
-            end
+    -- Inactive companions still check owner threats before considering construction.
+    for _, pd in pairs(script_data.player_data) do
+        for unit in pairs(pd.companions) do
+            local companion = get_companion(unit)
+            if companion and not companion.active then companion:update() end
         end
     end
 end
 
 local update_active_companions = function(event)
-    local mod = event.tick % storage.companion_update_interval
+    local mod = event.tick % math.min(storage.companion_update_interval, 5)
     local list = script_data.active_companions[mod]
     if not list then return end
     for unit_number, bool in pairs (list) do
@@ -1775,22 +1357,8 @@ local check_follow_update = function(event)
 end
 
 local function check_and_restore_construction_bots()
-    for unit_number, companion in pairs(script_data.companions) do
-        if companion and companion.entity and companion.entity.valid then
-            if companion:player_wants_construction() then
-                local inventory = companion:get_inventory()
-                if inventory and inventory[21] then
-                    local stack = inventory[21]
-                    if stack.valid_for_read then
-                        if stack.name ~= "companion-construction-robot" or stack.count ~= 100 then
-                            stack.set_stack({name="companion-construction-robot", count=100})
-                        end
-                    else
-                        inventory[21].set_stack({name="companion-construction-robot", count=100})
-                    end
-                end
-            end
-        end
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid then companion:set_robot_stack() end
     end
 end
 
@@ -1816,10 +1384,62 @@ local function check_inactive_idle_chatter(event)
     end
 end
 
+local function update_combat_robots()
+    for player_index, pd in pairs(script_data.player_data) do
+        local player = game.get_player(player_index)
+        for id, robot in pairs(pd.combat_robots or {}) do
+            if not robot.valid or not player.connected or not player.character
+                or player.physical_surface.platform or robot.surface ~= player.physical_surface
+                or not player.is_shortcut_toggled("companion-attack-toggle") then
+                if robot.valid then robot.destroy() end
+                pd.combat_robots[id] = nil
+                if pd.combat_sources then pd.combat_sources[id] = nil end
+                if pd.combat_slots then pd.combat_slots[id] = nil end
+            else
+                local slot = pd.combat_slots and pd.combat_slots[id]
+                if not slot then robot.destroy() -- Retire the previous orbiting swarm in development saves.
+                else
+                    -- Stable, balanced guard positions. No native steering or five-tick jumps.
+                    local angle = (slot.index - 1) * math.pi * 2 / slot.count - math.pi / 2
+                    local owner, pos = player.physical_position, robot.position
+                    local dx, dy = owner.x + math.cos(angle) * 3 - pos.x,
+                        owner.y - 1.5 + math.sin(angle) * 2 - pos.y
+                    local distance = math.sqrt(dx * dx + dy * dy)
+                    if distance > 0.01 then
+                        local step = math.min(0.12, 0.16 / distance)
+                        robot.teleport({pos.x + dx * step, pos.y + dy * step})
+                    end
+                end
+            end
+        end
+    end
+end
+
 local on_tick = function(event)
+    if event.tick % 60 == 0 then
+        for _, player in pairs(game.connected_players) do
+            ensure_player_companions(player)
+            local old_queue = player.gui.screen.companion_crafting_queue
+            if old_queue then old_queue.destroy() end
+        end
+    end
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid then companion:charge() end
+    end
+    update_combat_robots()
     update_active_companions(event) -- must run every tick
-	if event.tick % storage.companion_update_interval == 0 then 
-    -- by default runs every 5 ticks, user configurable
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid then
+            if companion.player.connected and companion.player.character and not companion.player.physical_surface.platform then
+                companion:update_crafting()
+                workers.update_managers(companion)
+            end
+            visuals.update(companion)
+            workers.visuals(companion)
+        end
+    end
+	if event.tick % math.min(storage.companion_update_interval, 5) == 0 then
+    -- Safety checks stay bounded even when expensive work searches are slowed down.
         check_follow_update(event)
         check_and_restore_construction_bots()
 		check_job_search(event)
@@ -1837,36 +1457,8 @@ local on_spider_command_completed = function(event)
 end
 
 function Companion:on_spider_command_completed()
-    local t = self.current_job_target
-    if t then
-        local p = self.player.physical_position
-        local tx = t[1] or t.x
-        local ty = t[2] or t.y
-        local dx = p.x - tx
-        local dy = p.y - ty
-        local d = (dx * dx + dy * dy) ^ 0.5
-        if d > abandon_job_distance then
-            self.moving_to_destination = nil
-            self.current_job_target = nil
-            self.entity.autopilot_destination = nil
-            self:clear_robots()
-            self:return_to_player()
-            return
-        end
-    end
-
     self.moving_to_destination = nil
-
-    local distance = self:distance(self.player.physical_position)
-    if not self.is_busy_for_construction and distance <= follow_range then
-        self:try_to_shove_inventory()
-    end
-
-    if self.current_job_target and not next(self.robots)
-       and self:player_wants_construction() and self.can_construct then
-        self:set_job_destination(self.current_job_target)
-        return
-    end
+    -- The update loop revalidates the entity and supplies, rather than retrying a stale position.
 end
 
 local companion_attack_trigger = function(event)
@@ -1883,7 +1475,7 @@ local companion_attack_trigger = function(event)
 
     local companion = get_companion(source_entity.unit_number)
     if companion then
-        companion:attack(target_entity, storage.attack_count)
+        companion:attack(target_entity, set_companion_stats(companion.player).attack_count)
     end
 end
 
@@ -1910,9 +1502,29 @@ source_entity :: LuaEntity (optional)
 target_position :: Position (optional)
 target_entity :: LuaEntity (optional)]]
 
+local function escort_attack(event)
+    local robot, target = event.source_entity, event.target_entity
+    if not robot or not robot.valid or not target or not target.valid then return end
+    local owner = robot.combat_robot_owner
+    local player = owner and owner.valid and owner.player
+    local pd = player and script_data.player_data[player.index]
+    local source = pd and pd.combat_sources and get_companion(pd.combat_sources[robot.unit_number])
+    if not source or not source.entity.valid then return end
+    local banks = 0
+    for _, equipment in pairs(source.entity.grid.equipment) do
+        if equipment.name == "companion-defense-equipment" then banks = banks + 1 end
+    end
+    local power = (pd.stats or set_companion_stats(player)).attack_count * banks
+    local squad = math.min(4, math.ceil(power / 4))
+    if squad == 0 then return end
+    robot.surface.create_entity{name = "companion-combat-beam", position = robot.position,
+        source = robot, target = target, force = robot.force, duration = 12}
+    target.damage(5 * power / squad * (1 + robot.force.get_ammo_damage_modifier("laser")), robot.force, "laser", robot)
+end
+
 local on_script_trigger_effect = function(event)
     local id = event.effect_id
-    --game.print(id)
+    if id == "companion-escort-attack" then escort_attack(event); return end
     if id == "companion-attack" then
         companion_attack_trigger(event)
         return
@@ -1927,7 +1539,6 @@ local on_player_placed_equipment = function(event)
 
     local player = game.get_player(event.player_index)
     --if player.opened_gui_type ~= defines.gui_type.entity then return end
-
 
     local opened = player.opened
     if not (opened and opened.valid and opened.prototype.name == "companion") then return end
@@ -1977,27 +1588,35 @@ local on_player_changed_surface = function(event)
     end
     local surface = player.physical_surface
     local position = player.physical_position
+    player_data.next_combat_deployment = nil
+    for id, robot in pairs(player_data.combat_robots or {}) do
+        if robot.valid then robot.destroy() end
+        player_data.combat_robots[id] = nil
+    end
 
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
         if companion then
-            companion:teleport(position, surface)
+            companion:cancel_job(false)
+            if surface.platform then
+                companion.entity.follow_target = nil
+                companion.entity.autopilot_destination = nil
+                companion:set_status({"companion-status.parked"})
+            else companion:teleport(position, surface) end
         end
     end
 
 end
 
 local on_player_left_game = function(event)
-    local player_data = script_data.player_data[event.player_index]
-    if not player_data then return end
-
-    local surface = get_secret_surface()
-    local position = {x = 0, y = 0}
-
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
+    local pd = script_data.player_data[event.player_index]
+    if not pd then return end
+    for unit in pairs(pd.companions) do
+        local companion = get_companion(unit)
         if companion then
-            companion:teleport(position, surface)
+            companion:cancel_job(false)
+            companion.entity.follow_target = nil
+            companion.entity.autopilot_destination = nil
         end
     end
 end
@@ -2007,6 +1626,7 @@ function reschedule_companions(allow_prototype_access)
     for k, companion in pairs(script_data.companions) do
         if companion.entity and companion.entity.valid then
             companion.moving_to_destination = nil
+            companion.current_job_target = nil
             if allow_prototype_access then
                 companion:set_active()
             else
@@ -2025,11 +1645,21 @@ local on_player_joined_game = function(event)
     local player = game.get_player(event.player_index)
     local surface = player.physical_surface
     local position = player.physical_position
+    player_data.next_combat_deployment = nil
+    for id, robot in pairs(player_data.combat_robots or {}) do
+        if robot.valid then robot.destroy() end
+        player_data.combat_robots[id] = nil
+    end
 
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
         if companion then
-            companion:teleport({position.x + math.random(-20, 20), position.y + math.random(-20, 20)}, surface)
+            if surface.platform or not player.character then
+                companion:cancel_job(false)
+                companion.entity.follow_target = nil
+                companion.entity.autopilot_destination = nil
+                companion:set_status({"companion-status.parked"})
+            else companion:teleport(position, surface) end
         end
     end
 	set_companion_stats(player)
@@ -2043,6 +1673,10 @@ local on_player_changed_force = function(event)
 
     local player = game.get_player(event.player_index)
     local force = player.force
+    for id, robot in pairs(player_data.combat_robots or {}) do
+        if robot.valid then robot.destroy() end
+        player_data.combat_robots[id] = nil
+    end
     for unit_number, bool in pairs (player_data.companions) do
         local companion = get_companion(unit_number)
         if companion then
@@ -2113,36 +1747,25 @@ end
 local recall_fighting_robots = function(player)
     local player_data = script_data.player_data[player.index]
     if not player_data then return end
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
-        if companion then
-            if companion.is_in_combat then
-                companion:return_to_player()
-            end
-        end
+    player_data.next_combat_deployment = nil
+    for id, robot in pairs(player_data.combat_robots or {}) do
+        if robot.valid then robot.destroy() end
+        player_data.combat_robots[id] = nil
     end
 end
 
 local recall_constructing_robots = function(player)
-    local player_data = script_data.player_data[player.index]
-    if not player_data then return end
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
-        if companion then
-            if next(companion.robots) then
-                companion:clear_robots()
-                companion:return_to_player()
-            end
-			if companion.moving_to_destination and not companion.is_in_combat then
-                companion.moving_to_destination = nil
-                companion:return_to_player()
-            end
-        end
+    local pd = script_data.player_data[player.index]
+    if not pd then return end
+    for unit in pairs(pd.companions) do
+        local companion = get_companion(unit)
+        if companion then companion:cancel_job(false); companion:return_to_player() end
     end
 end
 
-local clear_specific_job_search_queue = function(player)
-    script_data.specific_job_search_queue[player.index] = nil
+local clear_recent_area = function(player)
+    local pd = script_data.player_data[player.index]
+    if pd then pd.recent_area, pd.recent_tick = nil, nil end
 end
 
 local on_lua_shortcut = function(event)
@@ -2155,7 +1778,7 @@ local on_lua_shortcut = function(event)
 	if name == "companion-construction-toggle" then
 		player.set_shortcut_toggled(name, not player.is_shortcut_toggled(name))
 		recall_constructing_robots(player)
-		clear_specific_job_search_queue(player)
+		clear_recent_area(player)
 		local player_data = script_data.player_data[player.index]
 		if player_data then
 			for unit_number in pairs(player_data.companions) do
@@ -2181,7 +1804,7 @@ script.on_event("companion-construction-hotkey", function(event)
     if player then
         player.set_shortcut_toggled("companion-construction-toggle", not player.is_shortcut_toggled("companion-construction-toggle"))
         recall_constructing_robots(player)
-        clear_specific_job_search_queue(player)
+        clear_recent_area(player)
         local player_data = script_data.player_data[player.index]
         if player_data then
             for unit_number in pairs(player_data.companions) do
@@ -2213,98 +1836,29 @@ script.on_event("companion-force-search", function(event)
     end
 end)
 
-local dissect_area_size = 32
-
-local dissect_and_queue_area = function(player_index, player_pos, area)
-    local player_queue = script_data.specific_job_search_queue[player_index]
-    if not player_queue then
-        player_queue = {}
-        script_data.specific_job_search_queue[player_index] = player_queue
-    end
-	if not storage.max_distance then storage.max_distance = 250 end
-    local xmax = math.max(player_pos.x - storage.max_distance, area.left_top.x)
-    local xmin = math.min(player_pos.x + storage.max_distance, area.right_bottom.x)
-    local ymax = math.max(player_pos.y - storage.max_distance, area.left_top.y)
-    local ymin = math.min(player_pos.y + storage.max_distance, area.right_bottom.y)
-
-    local count = #player_queue
-    for x = xmin, xmax, dissect_area_size do
-        for y = ymin, ymax, dissect_area_size do
-            table.insert(player_queue, (count > 0 and math.random(count)) or 1, {{x, y}, {x + dissect_area_size, y + dissect_area_size}})
-            count = count + 1
-        end
-    end
-
+local remember_recent_area = function(player_index, player_pos, area)
+    local pd = script_data.player_data[player_index]
+    if pd then pd.recent_area, pd.recent_tick = area, game.tick end
 end
 
 local on_player_deconstructed_area = function(event)
     local player = game.get_player(event.player_index)
     if not player.is_shortcut_toggled("companion-construction-toggle") then return end
-    dissect_and_queue_area(event.player_index, player.physical_position, event.area)
-end
-
-local function get_all_blueprint_entities(blueprint_record)
-    local entities = {}
-
-    if blueprint_record.type == "blueprint-book" and blueprint_record.object_name == "LuaItem" then
-        blueprint_record = blueprint_record.get_inventory(defines.inventory.item_main)[blueprint_record.active_index]
-
-        return get_all_blueprint_entities(blueprint_record)
-    end
-
-    -- Check if the item is a blueprint book
-    if blueprint_record.type == "blueprint-book" then
-        -- Recursively process each item inside the book
-        for _, item in pairs(blueprint_record.contents) do
-            local nested_entities = get_all_blueprint_entities(item)
-            for _, nested_entity in pairs(nested_entities) do
-                table.insert(entities, nested_entity)
-            end
-        end
-    elseif blueprint_record.type == "blueprint" then
-        -- Add entities if it's a single blueprint
-        local blueprint_entities = blueprint_record.get_blueprint_entities()
-        if blueprint_entities then
-            for _, entity in pairs(blueprint_entities) do
-                table.insert(entities, entity)
-            end
-        end
-    end
-
-    return entities
+    remember_recent_area(event.player_index, player.physical_position, event.area)
 end
 
 local get_blueprint_area = function(player, offset)
-    local entities = {}
-    local max = 0
-    local x1, y1, x2, y2
-    local position
-
-    if player.cursor_stack and player.cursor_stack.valid_for_read then
-        if player.cursor_stack.object_name == "LuaRecord" and player.cursor_stack.count > 0 then
-            entities = get_all_blueprint_entities(player.cursor_stack)
-        else
-            entities = get_all_blueprint_entities(player.cursor_stack.item)
-        end
-    elseif player.cursor_record then
-        entities = get_all_blueprint_entities(player.cursor_record)
-    else
-        max = 32
-    end
-
-    if entities and #entities > 0 then
-        for _, entity in pairs (entities) do
-            position = entity.position
-            x1 = math.min(x1 or position.x, position.x)
-            y1 = math.min(y1 or position.y, position.y)
-            x2 = math.max(x2 or position.x, position.x)
-            y2 = math.max(y2 or position.y, position.y)
-
-            max = math.max(max, math.abs(x1), math.abs(x2), math.abs(y1), math.abs(y2))
+    local record = player.cursor_record
+    if record and record.type == "blueprint-book" then record = record.get_selected_record(player) end
+    local radius = 24
+    if record and record.type == "blueprint" then
+        for _, entity in pairs(record.get_blueprint_entities() or {}) do
+            radius = math.max(radius, math.abs(entity.position.x), math.abs(entity.position.y))
         end
     end
-
-    return {left_top = {x = offset.x - max, y = offset.y - max}, right_bottom = {x = offset.x + max, y = offset.y + max}}
+    -- A symmetric square covers rotations and flips without copying the blueprint geometry.
+    return {left_top = {x = offset.x - radius, y = offset.y - radius},
+        right_bottom = {x = offset.x + radius, y = offset.y + radius}}
 end
 
 local on_pre_build = function(event)
@@ -2316,10 +1870,8 @@ local on_pre_build = function(event)
         return
     end
 
-    -- I am lazy, not going to bother with rotations and flips...
     local area = get_blueprint_area(player, event.position)
-    dissect_and_queue_area(event.player_index, player.physical_position, area)
-
+    remember_recent_area(event.player_index, player.physical_position, area)
 
 end
 
@@ -2330,42 +1882,49 @@ end
 local function spawn_companion_for_player(player)
     if not (player and player.valid) then return end
 
-    local surface = player.physical_surface
-    local position = player.physical_position
-	set_companion_stats(player)
+    local surface = player.physical_surface.platform and game.surfaces.nauvis or player.physical_surface
+    local position = player.physical_surface.platform and player.force.get_spawn_position(surface) or player.physical_position
+    local stats = set_companion_stats(player)
+    local pd = script_data.player_data[player.index]
+    local first = not pd or not next(pd.companions)
 	local entity = surface.create_entity
 	{
 	    name = "companion",
-	    position = position,
+	    position = {position.x + 2, position.y},
 	    force = player.force
 	}
-	entity.insert("wood")
 	entity.color = player.color
 	local grid = entity.grid
 	grid.put{name = "companion-reactor-equipment"}
-	if not challenge_mode and mode ~= 1 and mode ~= 3 then
+	if mode ~= 1 and mode ~= 3 then
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-defense-equipment"}
-		grid.put{name = "companion-roboport-mk2"}
-		grid.put{name = "companion-shield-mk2"}
+		grid.put{name = "companion-roboport-mk" .. math.min(3, 2 + stats.planet_upgrades)}
+		grid.put{name = "companion-shield-mk" .. math.min(3, 2 + stats.planet_upgrades)}
         player.set_shortcut_available("companion-attack-toggle", true)
-        player.set_shortcut_toggled("companion-attack-toggle", true)
+        if first then player.set_shortcut_toggled("companion-attack-toggle", true) end
 	else
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-roboport-mk0"}
 		grid.put{name = "companion-shield-mk0"}
         player.set_shortcut_available("companion-attack-toggle", true)
-        player.set_shortcut_toggled("companion-attack-toggle", false)
+        if first then player.set_shortcut_toggled("companion-attack-toggle", false) end
 	end
 	player.set_shortcut_available("companion-construction-toggle", true)
-	player.set_shortcut_toggled("companion-construction-toggle", true)
+	if first then player.set_shortcut_toggled("companion-construction-toggle", true) end
 	return Companion.new(entity, player)
 end
 
+ensure_player_companions = function(player)
+    if not player.valid then return end
+    local pd = script_data.player_data[player.index]
+    local count = pd and table_size(pd.companions) or 0
+    local stats = set_companion_stats(player)
+    for i = count + 1, stats.max_companions do spawn_companion_for_player(player) end
+end
+
 local on_player_created = function(event)
-    local player = game.get_player(event.player_index)
-    if not player then return end
-    spawn_companion_for_player(player)
+    ensure_player_companions(game.get_player(event.player_index))
 end
 
 local function purge_illegal_companion_bots(player)
@@ -2492,7 +2051,7 @@ local function reset_companions_for_player(player)
         local companion = script_data.companions[unit_number]
         if companion then
             -- reset state
-            companion:clear_robots()
+            companion:cancel_job(false)
             companion.is_busy_for_construction = false
             companion.is_in_combat = false
             companion.job_done_tick = nil
@@ -2504,7 +2063,7 @@ local function reset_companions_for_player(player)
             companion.test_idle_fired = nil
             companion:clear_speed_sticker()
             companion:check_equipment()
-            companion:try_to_refuel()
+            companion:charge()
             companion:set_active()
             set_companion_stats(player)
             adjust_follow_behavior(player)
@@ -2538,44 +2097,32 @@ local function on_entity_damaged(event)
     c:escape_danger(src)                                          -- flee from cause, or to player if nil
 end
 
-
 local function on_research_finished(event)
-    if (not challenge_mode and mode ~= 1 and mode ~= 3) or not event.research then return end
-    local tech = event.research.name
-    local entries = storage.companion_upgrades and storage.companion_upgrades[tech]
-    if not entries or not entries[1] then return end
-    local up = entries[1]
-    local stat_alias = {
-        damage        = "attack_count",
-        number_drones = "max_companions",
-    }
-    for _, player in pairs(game.connected_players) do
+    if not event.research then return end
+    local up = storage.companion_upgrades and storage.companion_upgrades[event.research.name]
+    for _, player in pairs(game.players) do
         if player.force == event.research.force then
+            local stats = set_companion_stats(player)
             local pd = script_data.player_data[player.index]
-            if not pd then goto continue_player end
-            for unit_number in pairs(pd.companions) do
-                local companion = script_data.companions[unit_number]
-                if not companion then goto continue_companion end
-                if up.phrase then companion:say(up.phrase) end
-                if type(up.value) == "number" then
-                    -- STAT UPGRADE
-                    local key = stat_alias[up.stat] or up.stat
-                    storage[key] = up.value
-                elseif type(up.value) == "string" then
-                    -- EQUIPMENT UPGRADE (stat = from equipment, value = to equipment)
-                    local grid = companion:get_grid()
-                    if grid then
-                        swap_equipment(grid, up.stat, up.value)
-                        converge_equipment_to_researched(player, grid)
+            for unit in pairs(pd and pd.companions or {}) do
+                local companion = get_companion(unit)
+                if companion then
+                    if up and type(up[1].value) == "string" then
+                        swap_equipment(companion:get_grid(), up[1].stat, up[1].value)
                     end
+                    -- Planet upgrades improve worker capacity and reach, within the owner leash.
+                    local base_tier = (mode == 1 or mode == 3) and 0 or 2
+                    local tier = math.min(3, base_tier + stats.planet_upgrades)
+                    for old = 0, tier - 1 do
+                        swap_equipment(companion:get_grid(), "companion-roboport-mk" .. old, "companion-roboport-mk" .. tier)
+                        swap_equipment(companion:get_grid(), "companion-shield-mk" .. old, "companion-shield-mk" .. tier)
+                    end
+                    companion.flagged_for_equipment_changed = true
                 end
-                ::continue_companion::
             end
-            ::continue_player::
         end
     end
 end
-
 
 lib.events =
 {
@@ -2686,7 +2233,7 @@ local function create_popup(player, message)
   local frame = player.gui.center.add{
     type = "frame",
     name = "companion_popup",
-    caption = "Companion Drones 3.0",
+    caption = "Entourage — Companion Crew",
     direction = "vertical"
   }
   local textbox = frame.add{
@@ -2746,14 +2293,6 @@ local migrations = {
     end,
 }
 
-local function check_challenge_mode()
-    if challenge_mode and (mode == 0 or mode == 2) then
-        game.print("[WARNING] IMPORTANT MESSAGE FOR COMPANION DRONE CHALLENGE MODE USERS:")
-        game.print("[WARNING] The 'challenge mode' setting will be removed soon, replaced by the 'set mode' setting.")
-        game.print("[WARNING] You MUST switch 'set mode' to mode 1 or 3 OR uncheck 'challenge mode' or this mod will CRASH in the near future.")
-    end
-end
-
 script.on_event(defines.events.on_gui_click, on_gui_click)
 
 script.on_configuration_changed(function(e)
@@ -2777,7 +2316,7 @@ script.on_configuration_changed(function(e)
 
             if not player.is_shortcut_available("companion-attack-toggle") then
                 player.set_shortcut_available("companion-attack-toggle", true)
-                if mode == 1 or mode == 3 or challenge_mode then
+                if mode == 1 or mode == 3 then
                     player.set_shortcut_toggled("companion-attack-toggle", false)
                 else
                     player.set_shortcut_toggled("companion-attack-toggle", true)
@@ -2795,25 +2334,29 @@ script.on_configuration_changed(function(e)
     end
 
     for k, companion in pairs (script_data.companions) do
-        if (companion.player and companion.player.valid) then
+        if companion.entity.valid and companion.player and companion.player.valid then
             companion.speed = companion.speed or 0
             companion:clear_passengers()
-            companion.entity.minable_flag = true -- 2.1: LuaEntity.minable is read-only, use minable_flag
+            companion.entity.minable_flag = false
+            companion.entity.destructible = false
+        elseif companion.player and companion.player.valid then
+            companion:on_destroyed()
         else
-            companion.entity.destroy()
+            if companion.entity.valid then companion.entity.destroy() end
             script_data.companions[k] = nil
         end
     end
+    for _, player in pairs(game.players) do ensure_player_companions(player) end
 
     if script_data.tick_updates then
         script_data.tick_updates = nil
     end
 
-    script_data.specific_job_search_queue = script_data.specific_job_search_queue or {}
+    script_data.specific_job_search_queue = nil
+    script_data.search_schedule = nil
 
     reschedule_companions()
 	migrate_companions()
-    check_challenge_mode()
 	on_config_changed(e, migrations)
 end)
 
@@ -2823,7 +2366,6 @@ lib.on_load = function()
         setmetatable(companion, Companion.metatable)
     end
 end
-
 
 ----------------------------------- Commands and Remotes ------------------------------------
 
@@ -2901,17 +2443,17 @@ remote.add_interface("companion_remote_for_jetpack", jetpack_remote)
 commands.add_command("reschedule_companions", "If they get stuck or something", reschedule_companions)
 
 commands.add_command("companion",
-"Spawn a fresh companion drone (build, defend, etc.) at your position. Handy if you joined a server after the mod was already running and never received one.",
+"Restore missing members of your researched permanent companion fleet.",
 function(cmd)
     local player = cmd.player_index and game.get_player(cmd.player_index)
     if not player then return end
 
     local player_data = script_data.player_data and script_data.player_data[player.index]
     local current = player_data and table_size(player_data.companions) or 0
-    local cap = storage.max_companions or 1
+    local cap = set_companion_stats(player).max_companions
     if current >= cap then
         player.print({"", "You already have ", current, "/", cap,
-            " companion(s). Increase the limit (research/upgrades) or use /reset_companions."})
+            " companion(s). Research planet development or promethium to expand your fleet."})
         return
     end
 
@@ -2922,7 +2464,7 @@ function(cmd)
 end)
 
 commands.add_command("reset_companions",
-"Fully reset your companion(s) to brand-new state.",
+"Recall and reschedule your existing companions, preserving their identities and cargo.",
 function(cmd)
     local player = game.get_player(cmd.player_index)
     if player then reset_companions_for_player(player) end
@@ -2979,7 +2521,7 @@ end)
 commands.add_command("companion_check_mode",
 "",
 function(cmd)
-    game.print(tostring(challenge_mode))
+    game.print(tostring(mode == 1 or mode == 3))
     game.print(tostring(mode))
 end)
 

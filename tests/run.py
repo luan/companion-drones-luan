@@ -1,4 +1,4 @@
-"""Exercise drone build/refueling events in Factorio, isolated from player saves."""
+"""Exercise companion behavior in native Factorio, isolated from player saves."""
 import argparse
 import json
 import os
@@ -10,12 +10,15 @@ from threading import Timer
 parser = argparse.ArgumentParser()
 parser.add_argument("factorio", type=Path)
 parser.add_argument("--mod", type=Path, help="Test a release ZIP instead of the checkout")
+parser.add_argument("--space-age", action="store_true")
+parser.add_argument("--playground", action="store_true", help="Open the manual Space Age playground and leave it running")
 args = parser.parse_args()
+args.space_age = args.space_age or args.playground
 root = Path(__file__).resolve().parents[1]
 info = json.loads((root / "info.json").read_text())
 
 
-def run(best):
+def run(mode):
     qa = Path(tempfile.mkdtemp(prefix="companion-tests-"))
     mods = qa / "mods"
     mods.mkdir()
@@ -25,17 +28,18 @@ def run(best):
     harness.mkdir()
     (harness / "info.json").write_text(json.dumps({
         "name": harness.name, "version": "1.0.0", "title": "Companion integration tests",
-        "author": "Luan", "factorio_version": "2.1", "dependencies": [info["name"]],
+        "author": "Luan", "factorio_version": "2.1", "dependencies": [info["name"], "? space-age"],
     }))
     (harness / "data.lua").write_bytes((root / "tests/data.lua").read_bytes())
     (harness / "settings-updates.lua").write_text(
-        'data.raw["bool-setting"]["set-fuel-preference"].default_value = ' + str(best).lower())
+        'data.raw["int-setting"]["set-mode"].default_value = ' + str(mode)
+        + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = ' + str(4 if mode == 1 else 2))
     scenario = qa / "scenarios/integration"
     scenario.mkdir(parents=True)
-    (scenario / "control.lua").write_bytes((root / "tests/control.lua").read_bytes())
+    (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/control.lua")).read_bytes())
     (mods / "mod-list.json").write_text(json.dumps({"mods": [
-        {"name": name, "enabled": True} for name in ["base", info["name"], harness.name]
-    ] + [{"name": name, "enabled": False} for name in ["space-age", "elevated-rails", "quality", "recycler"]]}))
+        {"name": name, "enabled": True} for name in ["base", info["name"]] + ([] if args.playground else [harness.name])
+    ] + [{"name": name, "enabled": args.space_age} for name in ["space-age", "elevated-rails", "quality"]]}))
     config = qa / "config.ini"
     config.write_text("[path]\nread-data=__PATH__system-read-data__\nwrite-data=" + str(qa)
                       + "\n[other]\ncheck-updates=false\nautosave-interval=0\nenable-blueprint-storage-cloud-sync=false\n"
@@ -43,6 +47,12 @@ def run(best):
     command = [str(args.factorio), "--config", str(config), "--mod-directory", str(mods),
                "--load-scenario", "integration", "--disable-audio",
                "--window-size", "1280x720"]
+    if args.playground:
+        with (qa / "launch.log").open("w") as output:
+            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
+                                       env={**os.environ, "SteamAppId": "427520", "SteamGameId": "427520"})
+        print("Playground:", qa, "PID:", process.pid)
+        return
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, env={**os.environ, "SteamAppId": "427520", "SteamGameId": "427520"})
     timeout = Timer(180, process.kill)
@@ -57,7 +67,7 @@ def run(best):
     timeout.cancel()
     output = (qa / "factorio-current.log").read_text() if (qa / "factorio-current.log").exists() else "".join(lines) + remaining
     (qa / "test.log").write_text(output)
-    print("Fuel preference:", "best" if best else "worst", "Test artifacts:", qa)
+    print("Mode:", mode, "Test artifacts:", qa)
     print("\n".join(line for line in output.splitlines() if any(
         marker in line for marker in ["COMPANION", "Error", "error", "stack traceback", "control.lua:"])))
     if "COMPANION INTEGRATION PASS" not in output:
@@ -65,5 +75,5 @@ def run(best):
         raise SystemExit(1)
 
 
-for best in [False, True]:
-    run(best)
+for mode in ([0] if args.space_age else [0, 1, 2, 3]):
+    run(mode)

@@ -1,7 +1,22 @@
 data:extend({
     {
+        type = "int-setting", name = "companion-work-radius", setting_type = "startup",
+        default_value = 48, minimum_value = 12, maximum_value = 96, order = "f",
+        localised_description = {"settings.companion-work-radius"}
+    },
+    {
+        type = "double-setting",
+        name = "companion-crafting-speed",
+        setting_type = "startup",
+        default_value = 2,
+        minimum_value = 0.1,
+        order = "e",
+        localised_description = {"settings.companion-crafting-speed"}
+    },
+    {
         type = "bool-setting",
         name = "set-challenge-mode",
+        hidden = true, -- Legacy saves use this alias; new games select the mode below.
         setting_type = "startup",
         default_value = false,
         order = "c",
@@ -34,13 +49,6 @@ data:extend({
 		maximum_value = 3141592653589,
 		order = "a",
 		localised_description = {"settings.companion-idle-chatter-delay"}
-	},
-	{
-		type = "bool-setting",
-		name = "set-fuel-preference",
-		setting_type = "runtime-per-user",
-		default_value = false,
-		localised_description = {"settings.set-fuel-preference"}
 	},
     {
         type = "int-setting",

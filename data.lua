@@ -1,21 +1,18 @@
 local util                 = require("__core__/lualib/util")
 local attach_beam_graphics = require("data/beam_sprites")
-local mode = settings.startup["set-mode"].value
-local recipes = {}
 
 local bot = util.copy(data.raw["construction-robot"]["construction-robot"])
 bot.name = "companion-construction-robot"
 bot.localised_name = "Companion construction laser bank. (DO NOT TOUCH)"
-bot.max_payload_size = 5
--- Factorio 2.1 enforces max_speed >= speed. The original design capped the
--- companion bots at 0.4 tiles/tick (max_speed 0.4 < speed 0.75 clamped them),
--- so we set both to 0.4 to preserve that slow, research-immune behavior.
-bot.speed = 0.4
-bot.max_speed = 0.4
-bot.max_energy = "1000000MJ"
-bot.energy_per_tick = "10J"
+bot.max_payload_size = 1000
+bot.max_payload_size_after_bonus = 1000
+-- Hidden workers execute native robot jobs quickly, without charging delays.
+bot.speed = 2
+bot.max_speed = 2
+bot.max_energy = "1MJ"
+bot.energy_per_tick = "0J"
 bot.speed_multiplier_when_out_of_energy = 1
-bot.energy_per_move = "100J"
+bot.energy_per_move = "0J"
 bot.min_to_charge = 0
 bot.max_to_charge = 0
 bot.working_sound = nil
@@ -23,7 +20,7 @@ bot.minable = {name = "fish", amount = 0, mining_time = 3}
 bot.selection_box = {{-0.25,-0.25}, {0.25,0.25}}
 bot.cargo_centered = {0, -1}
 bot.selectable_in_game = false
-bot.draw_cargo = true
+bot.draw_cargo = false
 bot.max_health = 9999999
 bot.hidden = true
 
@@ -80,7 +77,7 @@ local equipment =
 {
   type = "roboport-equipment",
   name = "companion-roboport-equipment",
-  localised_name = {"companion-roboport"},
+  localised_name = {"item-name.companion-roboport-equipment"},
   take_result = "companion-roboport-equipment",
   sprite =
   {
@@ -106,7 +103,7 @@ local equipment =
     usage_priority = "secondary-input",
   },
 
-  charging_energy = "1000kW",
+  charging_energy = "1GW",
   spawn_minimum = "0W",
 
   robot_limit = 1000,
@@ -150,7 +147,7 @@ local equipment_item =
 {
   type = "item",
   name = "companion-roboport-equipment",
-  localised_name = {"companion-roboport"},
+  localised_name = {"item-name.companion-roboport-equipment"},
   icons =
   {
     {
@@ -171,43 +168,26 @@ local equipment_item =
 }
 
 
-local build_beam = util.copy(data.raw["beam"]["electric-beam-no-sound"])
-build_beam.name = "companion-build-beam"
-build_beam.action = nil
-attach_beam_graphics(build_beam, nil, nil, {0, 1, 0}, {0, 1, 0})
-
-local deconstruct_beam = util.copy(data.raw["beam"]["electric-beam-no-sound"])
-deconstruct_beam.name = "companion-deconstruct-beam"
-deconstruct_beam.action = nil
-attach_beam_graphics(deconstruct_beam, nil, nil, {1, 0, 0}, {1, 0, 0})
-
-local inserter_beam = util.copy(util.copy(data.raw["beam"]["laser-beam"]))
+-- Grayscale beam sprites preserve a cyan construction color instead of tinting a red laser.
+local construction_graphics = {}
+attach_beam_graphics(construction_graphics, nil, nil, {0.08, 0.38, 0.42}, {0.08, 0.38, 0.42})
+-- A narrow, slow tool glow rather than the full-size combat discharge.
+for _, part in ipairs{construction_graphics.head, construction_graphics.tail,
+        construction_graphics.start, construction_graphics.ending} do
+    part.scale = 0.45
+    part.animation_speed = 0.35
+end
+for _, part in ipairs(construction_graphics.body) do
+    part.scale = 0.45
+    part.animation_speed = 0.35
+end
+local inserter_beam = util.copy(data.raw.beam["laser-beam"])
 inserter_beam.name = "inserter-beam"
---inserter_beam.head = util.empty_sprite()
---inserter_beam.head.repeat_count = 8
---inserter_beam.head =
---{
---  filename = "__companion-drones-luan__/data//hr-fast-inserter-hand-closed.png",
---  priority = "extra-high",
---  width = 164,
---  height = 72,
---  scale = 0.25
---}
---inserter_beam.start = util.empty_sprite()
---inserter_beam.start.repeat_count = 8
---inserter_beam.body =
---{
---  filename = "__companion-drones-luan__/data//hr-fast-inserter-hand-base.png",
---  priority = "extra-high",
---  height = 32,
---  width = 136,
---  scale = 0.25
---}
---inserter_beam.tail = util.empty_sprite()
---inserter_beam.tail.repeat_count = 8
---inserter_beam.ending = util.empty_sprite()
---inserter_beam.ending.repeat_count = 8
---inserter_beam.light_animations = nil
+inserter_beam.width = 0.2
+inserter_beam.graphics_set = {beam = {
+    head = construction_graphics.head, tail = construction_graphics.tail,
+    body = construction_graphics.body, start = construction_graphics.start, ending = construction_graphics.ending,
+}}
 inserter_beam.target_offset = {0, 0}
 inserter_beam.random_target_offset = false
 inserter_beam.working_sound = nil
@@ -222,7 +202,7 @@ local drone =
 {
   type = "spider-vehicle",
   name = "companion",
-  localised_name = {"companion"},
+  localised_name = {"entity-name.companion"},
   collision_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   selection_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   drawing_box = {{-3 * scale, -4 * scale}, {3 * scale, 2 * scale}},
@@ -257,9 +237,10 @@ local drone =
   weight = 1,
   braking_force = 1,
   friction_force = 1,
-  flags = {"placeable-neutral", "player-creation", "placeable-off-grid"},
+  flags = {"placeable-neutral", "player-creation", "placeable-off-grid", "not-blueprintable", "not-deconstructable"},
   collision_mask = { layers = { trigger_target = true }},
-  minable = {result = "companion", mining_time = 1},
+  -- Permanent fleet members are never mined, blueprinted or deconstructed.
+  minable = nil,
   max_health = 250,
   resistances =
   {
@@ -313,28 +294,7 @@ local drone =
   graphics_set = spidertron_torso_graphics_set(0.6),
   base_render_layer = "smoke",
   render_layer = "air-object",
-  energy_source =
-  {
-    type = "burner",
-    fuel_categories = {"chemical"},
-    effectivity = 0.25,
-    fuel_inventory_size = 3,
-    smoke =
-    {
-      {
-        name = "train-smoke",
-        deviation = {0.3, 0.3},
-        frequency = 100,
-        position = {0, 0},
-        starting_frame = 0,
-        starting_frame_deviation = 60,
-        height = 0,
-        height_deviation = 0.8,
-        starting_vertical_speed = -0.2,
-        starting_vertical_speed_deviation = 0.2
-      }
-    }
-  },
+  energy_source = {type = "void"},
   movement_energy_consumption = "100kW",
   automatic_weapon_cycling = true,
   chain_shooting_cooldown_modifier = 0.5,
@@ -362,6 +322,37 @@ local drone =
   }
 
 }
+-- Render the new airframe in the same 64 orientation slots as the saved actors.
+drone.graphics_set.base_animation = {layers = {util.empty_sprite(), util.empty_sprite()}}
+drone.graphics_set.animation = {layers = {
+    {filename = "__companion-drones-luan__/sprites/entourage-body.png", width = 320, height = 320,
+        direction_count = 64, line_length = 8, scale = 0.25}, util.empty_sprite(),
+}}
+-- Script rendering lowers the same persistent entity when its landing feet deploy.
+for _, part in ipairs{"base_animation", "animation"} do
+    for index, layer in ipairs(drone.graphics_set[part].layers) do
+        local animation = table.deepcopy(layer)
+        animation.type = "animation"
+        animation.name = "companion-" .. part .. "-" .. index
+        animation.frame_count = animation.direction_count
+        animation.direction_count = nil
+        animation.apply_runtime_tint = nil
+        data:extend{animation}
+    end
+    drone.graphics_set[part] = util.empty_sprite()
+end
+drone.graphics_set.shadow_animation = util.empty_sprite()
+drone.graphics_set.shadow_base_animation = util.empty_sprite()
+data:extend{
+    {type = "animation", name = "companion-landing-gear",
+        filename = "__companion-drones-luan__/sprites/landing-gear.png", width = 256, height = 256,
+        frame_count = 6, line_length = 6, scale = 0.25},
+    {type = "sprite", name = "companion-work-glow", filename = "__core__/graphics/light-medium.png",
+        width = 300, height = 300, scale = 0.12, blend_mode = "additive-soft"},
+}
+data:extend{{type = "sprite", name = "companion-ground-shadow",
+    filename = "__companion-drones-luan__/sprites/shadow.png", width = 256, height = 256,
+    scale = 0.15, draw_as_shadow = true}}
 drone.graphics_set.render_layer = "air-entity-info-icon"
 drone.graphics_set.base_render_layer = "air-object"
 drone.graphics_set.autopilot_path_visualisation_line_width = 0
@@ -430,8 +421,7 @@ local drone_item =
   type = "item-with-entity-data",
   name = "companion",
   icon = "__companion-drones-luan__/sprites/drone-icon.png",
-  icon_tintable = "__companion-drones-luan__/sprites/drone-icon-tintable.png",
-  icon_tintable_mask = "__companion-drones-luan__/sprites/drone-icon-mask.png",
+  hidden = true, -- Existing drone items remain loadable but are no longer obtainable.
   icon_size = 200,
   subgroup = "companion",
 
@@ -444,7 +434,7 @@ local gun =
 {
   type = "active-defense-equipment",
   name = "companion-defense-equipment",
-  localised_name = {"companion-laser"},
+  localised_name = {"item-name.companion-defense-equipment"},
   take_result = "companion-defense-equipment",
   sprite =
   {
@@ -506,7 +496,7 @@ local gun_item =
 {
   type = "item",
   name = "companion-defense-equipment",
-  localised_name = {"companion-laser"},
+  localised_name = {"item-name.companion-defense-equipment"},
   icons =
   {
     {
@@ -580,7 +570,7 @@ local shield =
 {
   type = "energy-shield-equipment",
   name = "companion-shield-equipment",
-  localised_name = {"companion-shield"},
+  localised_name = {"item-name.companion-shield-equipment"},
   take_result = "companion-shield-equipment",
   sprite =
   {
@@ -612,7 +602,7 @@ local shield_item =
 {
   type = "item",
   name = "companion-shield-equipment",
-  localised_name = {"companion-shield"},
+  localised_name = {"item-name.companion-shield-equipment"},
   icons =
   {
     {
@@ -745,7 +735,7 @@ local companion_roboport_mk0 = {
         input_flow_limit = "50kW",
         usage_priority = "secondary-input",
     },
-    charging_energy = "10kW",
+    charging_energy = "1GW",
     spawn_minimum = "0W",
     robot_limit = 1,             -- Only 1 bot
     construction_radius = 3,     -- Pitiful range
@@ -778,7 +768,7 @@ companion_roboport_mk1.name = "companion-roboport-mk1"
 companion_roboport_mk1.localised_name = {"item-name.companion-roboport-mk1"}
 companion_roboport_mk1.energy_source.buffer_capacity = "20MJ"
 companion_roboport_mk1.energy_source.input_flow_limit = "200kW"
-companion_roboport_mk1.charging_energy = "80kW"
+companion_roboport_mk1.charging_energy = "1GW"
 companion_roboport_mk1.robot_limit = 5
 companion_roboport_mk1.construction_radius = 5
 companion_roboport_mk1.charging_station_count = 1
@@ -790,7 +780,7 @@ companion_roboport_mk2.name = "companion-roboport-mk2"
 companion_roboport_mk2.localised_name = {"item-name.companion-roboport-mk2"}
 companion_roboport_mk2.energy_source.buffer_capacity = "50MJ"
 companion_roboport_mk2.energy_source.input_flow_limit = "500kW"
-companion_roboport_mk2.charging_energy = "250kW"
+companion_roboport_mk2.charging_energy = "1GW"
 companion_roboport_mk2.robot_limit = 16
 companion_roboport_mk2.construction_radius = 8
 companion_roboport_mk2.charging_station_count = 2
@@ -802,7 +792,7 @@ companion_roboport_mk3.name = "companion-roboport-mk3"
 companion_roboport_mk3.localised_name = {"item-name.companion-roboport-mk3"}
 companion_roboport_mk3.energy_source.buffer_capacity = "120MJ"
 companion_roboport_mk3.energy_source.input_flow_limit = "1MW"
-companion_roboport_mk3.charging_energy = "600kW"
+companion_roboport_mk3.charging_energy = "1GW"
 companion_roboport_mk3.robot_limit = 69
 companion_roboport_mk3.construction_radius = 12
 companion_roboport_mk3.charging_station_count = 4
@@ -900,7 +890,7 @@ local reactor =
 {
   type = "generator-equipment",
   name = "companion-reactor-equipment",
-  localised_name = {"companion-reactor"},
+  localised_name = {"item-name.companion-reactor-equipment"},
   take_result = "companion-reactor-equipment",
   sprite =
   {
@@ -929,7 +919,7 @@ local reactor_item =
 {
   type = "item",
   name = "companion-reactor-equipment",
-  localised_name = {"companion-reactor"},
+  localised_name = {"item-name.companion-reactor-equipment"},
   icons =
   {
     {
@@ -948,180 +938,6 @@ local reactor_item =
   default_request_amount = 1,
   stack_size = 20
 }
-
-if mode == 0 or mode == 1 then -- normal or challenge mode
-    recipes =
-    {
-      {
-        type = "recipe",
-        name = "companion",
-        enabled = true,
-        energy_required = 120,
-        ingredients =
-        {
-          {type="item", name="processing-unit", amount=100},
-          {type="item", name="low-density-structure", amount=50},
-          {type="item", name="engine-unit", amount=50},
-          {type="item", name="flying-robot-frame", amount=4},
-          {type="item", name="spidertron", amount=1}
-        },
-        results =
-        {
-          {type="item", name="companion", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-reactor-equipment",
-        enabled = true,
-        energy_required = 60,
-        ingredients =
-        {
-          {type="item", name="processing-unit", amount=100},
-          {type="item", name="steel-plate", amount=10},
-          {type="item", name="uranium-fuel-cell", amount=1}
-        },
-        results =
-        {
-          {type="item", name="companion-reactor-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-shield-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="energy-shield-equipment", amount=10},
-          {type="item", name="processing-unit", amount=10}
-        },
-        results =
-        {
-          {type="item", name="companion-shield-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-roboport-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="processing-unit", amount=50},
-          {type="item", name="personal-roboport-equipment", amount=4},
-          {type="item", name="plastic-bar", amount=20}
-        },
-        results =
-        {
-          {type="item", name="companion-roboport-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-defense-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="processing-unit", amount=15},
-          {type="item", name="low-density-structure", amount=10},
-          {type="item", name="personal-laser-defense-equipment", amount=4}
-        },
-        results =
-        {
-          {type="item", name="companion-defense-equipment", amount=1}
-        }
-      }
-    }    
-elseif mode == 2 or mode == 3 then -- forgiving or combined mode
-    recipes =
-    {
-      {
-        type = "recipe",
-        name = "companion",
-        enabled = true,
-        energy_required = 120,
-        ingredients =
-        {
-          {type="item", name="electronic-circuit", amount=200},
-          {type="item", name="copper-plate", amount=50},
-          {type="item", name="iron-plate", amount=100},
-          {type="item", name="raw-fish", amount=1}
-        },
-        results =
-        {
-          {type="item", name="companion", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-reactor-equipment",
-        enabled = true,
-        energy_required = 60,
-        ingredients =
-        {
-          {type="item", name="electronic-circuit", amount=100},
-          {type="item", name="iron-plate", amount=100},
-          {type="item", name="copper-plate", amount=100},
-          {type="item", name="stone-brick", amount=50},
-          {type="item", name="coal", amount=50}
-        },
-        results =
-        {
-          {type="item", name="companion-reactor-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-shield-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="iron-plate", amount=20},
-          {type="item", name="electronic-circuit", amount=50}
-        },
-        results =
-        {
-          {type="item", name="companion-shield-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-roboport-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="electronic-circuit", amount=50},
-          {type="item", name="iron-plate", amount=10},
-          {type="item", name="copper-plate", amount=10}
-        },
-        results =
-        {
-          {type="item", name="companion-roboport-equipment", amount=1}
-        }
-      },
-      {
-        type = "recipe",
-        name = "companion-defense-equipment",
-        enabled = true,
-        energy_required = 30,
-        ingredients =
-        {
-          {type="item", name="electronic-circuit", amount=50},
-          {type="item", name="copper-plate", amount=20}
-        },
-        results =
-        {
-          {type="item", name="companion-defense-equipment", amount=1}
-        }
-      }
-    }
-end
-
-data:extend(recipes)
 
 local speed_sticker =
 {
@@ -1293,3 +1109,65 @@ data:extend{ -- Keybinds to toggle construction or attack mode
         localised_description = {"commands.companion-force-search"}
     }
 }
+-- Disposable owner-following escorts fight independently while the companion works.
+local escort = table.deepcopy(data.raw["combat-robot"].destroyer)
+escort.name = "companion-combat-robot"
+escort.localised_name = {"entity-name.companion-combat-robot"}
+escort.time_to_live = 600
+escort.follows_player = false -- Custom following avoids the vanilla follower-research cap.
+escort.speed = 0
+escort.max_speed = 0
+escort.minable = nil
+escort.max_health = 150
+escort.range_from_player = 4
+escort.separation_range = 0
+escort.working_sound = nil
+escort.destroy_action = nil
+escort.dying_explosion = nil
+escort.icon = "__companion-drones-luan__/sprites/drone-icon.png"
+escort.icon_size = 200
+local mini = spidertron_torso_graphics_set(0.3)
+mini.animation = {filename = "__companion-drones-luan__/sprites/entourage-body.png",
+    width = 320, height = 320, direction_count = 64, line_length = 8, scale = 0.14}
+escort.idle = mini.animation
+escort.in_motion = table.deepcopy(mini.animation)
+escort.shadow_idle = mini.shadow_animation
+escort.shadow_in_motion = table.deepcopy(mini.shadow_animation)
+escort.water_reflection = nil
+-- A small squad shares the old volley power; research strengthens it without adding visual clutter.
+local combat_beam = table.deepcopy(data.raw.beam["laser-beam"])
+combat_beam.name = "companion-combat-beam"
+combat_beam.action = nil
+combat_beam.working_sound = nil
+escort.attack_parameters.cooldown = 24
+escort.attack_parameters.damage_modifier = 1
+escort.attack_parameters.ammo_category = "laser"
+escort.attack_parameters.range = 32
+escort.attack_parameters.ammo_type = {category = "laser", action = {type = "direct",
+    action_delivery = {type = "instant", target_effects = {{type = "script", effect_id = "companion-escort-attack"}}}}}
+local workers = {combat_beam, escort}
+for _, name in ipairs{"companion-crafter", "companion-task-manager"} do
+  local worker = {type = "simple-entity-with-owner", name = name,
+    localised_name = {"entity-name." .. name},
+    icon = "__companion-drones-luan__/sprites/drone-icon.png", icon_size = 200,
+    flags = {"placeable-off-grid", "not-on-map"}, max_health = 9999999,
+    collision_mask = {layers = {}}, selectable_in_game = false, hidden = true,
+    picture = util.empty_sprite()}
+  workers[#workers + 1] = worker
+end
+data:extend(workers)
+
+data.raw["spider-vehicle"].companion.minable = nil
+
+-- Native workers cover the owner's work area while the companion keeps its short leash.
+for name, equipment in pairs(data.raw["roboport-equipment"]) do
+    if name:sub(1, #"companion-roboport") == "companion-roboport" then
+        equipment.construction_radius = settings.startup["companion-work-radius"].value + 12
+    end
+end
+
+-- Keep existing inventory/equipment references valid without exposing obsolete crafting.
+for name, item in pairs(data.raw.item) do
+    if name:sub(1, 10) == "companion-" then item.hidden = true; item.auto_recycle = false end
+end
+data.raw["item-with-entity-data"].companion.auto_recycle = false

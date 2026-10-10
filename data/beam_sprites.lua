@@ -1,6 +1,6 @@
 local beam_blend_mode = "additive"
 local beam_non_light_flags = { "trilinear-filtering" }
-local path = "__Companion_Drones__/data/grey_beams/"
+local path = "__companion-drones-luan__/data/grey_beams/"
 
 local function attach_beam_graphics(beam_table, blend_mode, beam_flags, beam_tint, light_tint)
   beam_table.start =
