@@ -16,6 +16,10 @@ The crew checks for nearby enemies first, skips work without materials or placem
 
 The work radius defaults to **48 tiles**, configurable from 12 to 96. The main companion normally stays within 12 tiles and recalls within two seconds, or immediately beyond 24. Managers operate on short two-second assignments. Crafters remain planted within 48 tiles; moving farther away or changing planets recalls them after two seconds and refunds their reserved ingredients. Cargo is preserved when return inventories are full.
 
+![Parallel crafting and combat in multiplayer](https://raw.githubusercontent.com/luan/companion-drones-luan/main/docs/screenshots/crafting-and-combat.png)
+
+![Task managers building in multiplayer](https://raw.githubusercontent.com/luan/companion-drones-luan/main/docs/screenshots/construction.png)
+
 ## Research and settings
 
 Each non-Nauvis planet, including modded planets, receives an expensive companion development technology: 2,000 research units at 60 seconds each. It uses available core science, discovery science and an identifiable planet science pack. Each completed planet improves movement, equipment and crafting, and adds one parallel crafter. Every **two planets grant another permanent companion**. Infinite promethium research grants additional companions.
@@ -28,7 +32,7 @@ Normal mode starts with full equipment. Challenge mode retains ordinary research
 
 ## Current limits
 
-Autocrafting supports enabled player-craftable recipes with normal-quality ingredients and one deterministic item output. Fluids, machine-only recipes and probabilistic products require a factory. Broad multiplayer and arbitrary modpack compatibility are not guaranteed by the single-player integration suite.
+Autocrafting supports enabled player-craftable recipes with normal-quality ingredients and one deterministic item output. Fluids, machine-only recipes and probabilistic products require a factory.
 
 ## Credits and license
 

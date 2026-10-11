@@ -281,19 +281,32 @@ function workers.update_managers(companion)
 end
 
 function workers.park(companion)
-    for _, worker in ipairs(companion.crafters or {}) do
-        worker.craft.last_tick = game.tick
-        visuals.clear(worker)
-    end
-    for _, worker in ipairs(companion.managers or {}) do
-        worker.task, worker.tasks = nil, {}
-        visuals.clear(worker)
-        if worker.entity.valid then move(worker, companion.entity.position, companion.entity.surface, 1000000) end
+    for _, group in ipairs{companion.crafters or {}, companion.managers or {}} do
+        for index = #group, 1, -1 do
+            local worker = group[index]
+            worker.task, worker.tasks = nil, {}
+            if worker.craft then
+                worker.craft.finished = true
+                worker.craft.task_key, worker.craft.task_keys = nil, nil
+                worker.craft.last_tick = game.tick
+            end
+            visuals.clear(worker)
+            if worker.entity.valid then move(worker, companion.entity.position, companion.entity.surface, 1000000) end
+            -- Release task claims even when the owner's trunk cannot accept all the returned cargo.
+            for i = 1, #worker.inventory do
+                local stack = worker.inventory[i]
+                if stack.valid_for_read then companion:get_inventory().transfer_from_stack(stack) end
+            end
+            if worker.inventory.is_empty() then
+                remove(worker)
+                table.remove(group, index)
+            end
+        end
     end
 end
 
 function workers.visuals(companion)
-    if not companion.player.character or companion.player.physical_surface.platform then return end
+    if not companion.player.connected or not companion.player.character or companion.player.physical_surface.platform then return end
     for _, group in ipairs{companion.crafters or {}, companion.managers or {}} do
         for _, worker in ipairs(group) do if worker.entity.valid then visuals.update(worker, companion.entity.color or companion.player.color) end end
     end

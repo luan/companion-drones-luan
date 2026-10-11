@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.0.2
+Date: 2026-10-10
+  Bugfixes:
+    - Release crafting task claims when an owner disconnects, dies or parks their drones.
+    - Return reserved materials to the companion, retaining any cargo that cannot fit.
+    - Stop recreating worker graphics while their owner is offline.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.1
 Date: 2026-10-10
   Changes:
