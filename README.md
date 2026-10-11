@@ -1,6 +1,6 @@
 # Entourage
 
-Companion drones for Factorio 2.1. Updates keep the existing mod ID (`companion-drones-luan`) and save data.
+Companion drones for Factorio 2.1.
 
 ![Entourage](thumbnail.png)
 
