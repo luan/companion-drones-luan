@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.0.3
+Date: 2026-10-10
+  Bugfixes:
+    - Fix startup with More Quality Scaling when robot cargo scaling is enabled.
+    - Keep generated planet research compatible with dedicated labs, including Panglia datacells.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.2
 Date: 2026-10-10
   Bugfixes:

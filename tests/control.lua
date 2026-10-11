@@ -503,6 +503,9 @@ script.on_event(defines.events.on_tick, function(event)
             assert(player.force.technologies["companion-planet-" .. name], "research generated for " .. name)
         end
         check(player.force.technologies["companion-planet-nauvis"], nil, "no Nauvis expansion research")
+        local ingredients = player.force.technologies["companion-planet-companion-test-planet"].research_unit_ingredients
+        check(#ingredients, 1, "dedicated lab research keeps compatible ingredients")
+        check(ingredients[1].name, "entourage-test-datacell", "dedicated discovery ingredient retained")
         player.force.technologies["companion-planet-vulcanus"].researched = true
         player.force.technologies["companion-planet-companion-test-planet"].researched = true
     elseif elapsed == 4140 then

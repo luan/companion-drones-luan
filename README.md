@@ -22,7 +22,7 @@ The work radius defaults to **48 tiles**, configurable from 12 to 96. The main c
 
 ## Research and settings
 
-Each non-Nauvis planet, including modded planets, receives an expensive companion development technology: 2,000 research units at 60 seconds each. It uses available core science, discovery science and an identifiable planet science pack. Each completed planet improves movement, equipment and crafting, and adds one parallel crafter. Every **two planets grant another permanent companion**. Infinite promethium research grants additional companions.
+Each non-Nauvis planet, including modded planets, receives an expensive companion development technology: 2,000 research units at 60 seconds each. It keeps the discovery research ingredients and adds planet and core science packs when a lab accepts the combination. Each completed planet improves movement, equipment and crafting, and adds one parallel crafter. Every **two planets grant another permanent companion**. Infinite promethium research grants additional companions.
 
 Mini drone movement defaults to half speed. Change **Mini drone movement speed** in runtime mod settings (0.1 to 2×); it applies immediately to escorts, managers and flying crafters without slowing crafting or task execution.
 

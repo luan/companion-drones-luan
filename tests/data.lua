@@ -5,11 +5,17 @@ if data.raw.planet and data.raw.planet.nauvis then
     planet.distance = 25
     planet.orientation = 0.3
     planet.localised_name = "Companion test planet"
-    data:extend{planet, {
+    local pack = table.deepcopy(data.raw.item["automation-science-pack"])
+    pack.name = "entourage-test-datacell"
+    local lab = table.deepcopy(data.raw.lab.lab)
+    lab.name = "companion-test-lab"
+    lab.inputs = {pack.name}
+    lab.minable = nil
+    data:extend{planet, pack, lab, {
         type = "technology", name = "companion-test-discovery",
         icon = "__base__/graphics/technology/space-science-pack.png", icon_size = 256,
         effects = {{type = "unlock-space-location", space_location = planet.name}},
-        unit = {count = 10, time = 1, ingredients = {{"automation-science-pack", 1}}},
+        unit = {count = 10, time = 1, ingredients = {{pack.name, 1}}},
     }}
 end
 

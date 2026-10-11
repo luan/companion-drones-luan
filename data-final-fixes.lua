@@ -17,6 +17,20 @@ data:extend{{type = "technology", name = "companion-crafting-speed-1",
     effects = {}, max_level = "infinite", upgrade = true,
     unit = {count_formula = "1000*2^(L-1)", time = 60, ingredients = crafting_science},
 }}
+-- Discovery research may use a dedicated lab that cannot accept ordinary science.
+local function lab_accepts(packs)
+    for _, lab in pairs(data.raw.lab) do
+        local inputs = {}
+        for _, name in ipairs(lab.inputs) do inputs[name] = true end
+        local compatible = true
+        for name in pairs(packs) do
+            if not inputs[name] then compatible = false; break end
+        end
+        if compatible then return true end
+    end
+    return false
+end
+
 local planet_count = 0
 for name, planet in pairs(data.raw.planet or {}) do
     if name ~= "nauvis" then
@@ -33,16 +47,18 @@ for name, planet in pairs(data.raw.planet or {}) do
         table.sort(discoveries)
         if discoveries[1] then prerequisites[1] = discoveries[1] end
         local packs = {}
-        for _, pack in ipairs(core_science) do
-            if data.raw.item[pack] then packs[pack] = true end
-        end
-        -- Modded discovery packs are retained; mods need no companion-specific integration.
         local discovery = discoveries[1] and data.raw.technology[discoveries[1]]
         for _, ingredient in pairs(discovery and discovery.unit and discovery.unit.ingredients or {}) do
-            packs[ingredient[1]] = true
+            packs[ingredient[1] or ingredient.name] = true
         end
-        local pack = planet_science[name] or (name .. "-science-pack")
-        if data.raw.item[pack] then packs[pack] = true end
+        local candidates = {planet_science[name] or (name .. "-science-pack")}
+        for _, pack in ipairs(core_science) do candidates[#candidates + 1] = pack end
+        for _, pack in ipairs(candidates) do
+            if data.raw.item[pack] and not packs[pack] then
+                packs[pack] = true
+                if not lab_accepts(packs) then packs[pack] = nil end
+            end
+        end
         for pack_name in pairs(packs) do ingredients[#ingredients + 1] = {pack_name, 1} end
         table.sort(ingredients, function(a, b) return a[1] < b[1] end)
         data:extend{{type = "technology", name = "companion-planet-" .. name,

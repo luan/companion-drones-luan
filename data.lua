@@ -5,7 +5,8 @@ local bot = util.copy(data.raw["construction-robot"]["construction-robot"])
 bot.name = "companion-construction-robot"
 bot.localised_name = "Companion construction laser bank. (DO NOT TOUCH)"
 bot.max_payload_size = 1000
-bot.max_payload_size_after_bonus = 1000
+-- Let quality mods increase cargo capacity without exceeding a fixed cap.
+bot.max_payload_size_after_bonus = nil
 -- Hidden workers execute native robot jobs quickly, without charging delays.
 bot.speed = 2
 bot.max_speed = 2

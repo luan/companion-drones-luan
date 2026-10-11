@@ -1,0 +1,36 @@
+4.0.2: robot capacity failure
+Exit: 1
+   1.111 Loading mod companion-drones-luan 4.0.2 (data.lua)
+   4.617 Loading mod more-quality-scaling 1.7.3 (data.lua)
+   4.647 Loading mod panglia_planet 0.7.2 (data.lua)
+   8.198 Loading mod panglia_planet 0.7.2 (data-updates.lua)
+   9.056 Loading mod companion-drones-luan 4.0.2 (data-final-fixes.lua)
+  15.303 Loading mod more-quality-scaling 1.7.3 (data-final-fixes.lua)
+  15.568 Loading mod panglia_planet 0.7.2 (data-final-fixes.lua)
+  21.302 Error Util.cpp:81: Error while loading entity prototype "uncommon-companion-construction-robot" (construction-robot): max_payload_size_after_bonus must be >= max_payload_size.
+------------- Error -------------
+Error while loading entity prototype "uncommon-companion-construction-robot" (construction-robot): max_payload_size_after_bonus must be >= max_payload_size.
+
+First fix: dedicated lab failure
+Exit: 1
+   1.058 Loading mod companion-drones-luan 4.0.3 (data.lua)
+   4.618 Loading mod more-quality-scaling 1.7.3 (data.lua)
+   4.650 Loading mod panglia_planet 0.7.2 (data.lua)
+   8.238 Loading mod panglia_planet 0.7.2 (data-updates.lua)
+   9.077 Loading mod companion-drones-luan 4.0.3 (data-final-fixes.lua)
+  15.339 Loading mod more-quality-scaling 1.7.3 (data-final-fixes.lua)
+  15.615 Loading mod panglia_planet 0.7.2 (data-final-fixes.lua)
+  21.183 Error Util.cpp:81: Technology companion-planet-panglia: there is no lab that will accept all of the science packs this technology requires.
+------------- Error -------------
+
+4.0.3: full modpack startup passed
+Exit: 0
+   1.068 Loading mod companion-drones-luan 4.0.3 (data.lua)
+   4.377 Loading mod more-quality-scaling 1.7.3 (data.lua)
+   4.408 Loading mod panglia_planet 0.7.2 (data.lua)
+   7.911 Loading mod panglia_planet 0.7.2 (data-updates.lua)
+   8.728 Loading mod companion-drones-luan 4.0.3 (data-final-fixes.lua)
+  14.817 Loading mod more-quality-scaling 1.7.3 (data-final-fixes.lua)
+  15.061 Loading mod panglia_planet 0.7.2 (data-final-fixes.lua)
+Done.
+  33.190 Goodbye
