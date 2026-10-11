@@ -1,18 +1,16 @@
-# Entourage — Companion Crew
+# Entourage
 
-A permanent companion and its crew for Factorio 2.1. Previously published as Companion Drones — Luan Fork. Version 4.0.0 keeps the existing mod ID (`companion-drones-luan`) so updates retain save data.
+Companion drones for Factorio 2.1. Updates keep the existing mod ID (`companion-drones-luan`) and save data.
 
 ![Entourage](thumbnail.png)
 
-The crew uses Astra’s layered steel models: a rounded four-duct companion, a shared tool-bearing utility body for managers and crafters, and a swept plasma-engine combat escort. Painted armor follows the companion color and owner color changes while machinery retains its materials. Rotors animate separately; crafters land on matched telescopic feet. Editable Blender sources and export commands are in `art/entourage/astra/`.
-
 Every player receives one companion automatically. It stays close, travels with its owner between planets, survives character death, and cannot be mined or killed. Companions park on the previous planet while their owners are on space platforms. There are no drone or companion equipment crafting recipes, fuel requirements, or charging delays.
 
-## A crew that works in parallel
+## Drones
 
-- **Six task managers per companion.** Each manager receives up to 32 nearby tasks and exactly the materials those tasks need. Managers build, upgrade, repair and deconstruct with gentle cyan tool beams. They return leftovers and salvage before disappearing; full return inventories keep cargo safe in the manager until space becomes available.
-- **Six crafters per companion to start.** Independent crafters reserve ingredients, land on hydraulic feet, and show the item, batch count and progress overhead. They stay at their landing positions while the owner moves. Nearby matching ghosts share batches of up to eight items, including intermediate recipes. The player's handcrafting queue is never used.
-- **Custom combat escorts.** A companion launches a squad of up to four small drones from its own body. They use red combat lasers and defend the owner while the crew keeps working. Squad power follows companion upgrades without flooding the screen with more escorts.
+- **Six task managers per companion.** Each manager receives up to 32 nearby tasks and exactly the materials those tasks need. Managers build, upgrade, repair and deconstruct with cyan beams. They return leftovers and salvage before disappearing; full return inventories keep cargo safe in the manager until space becomes available.
+- **Six crafters per companion to start.** Independent crafters reserve ingredients, land, and show the item, batch count and progress overhead. They stay at their landing positions while the owner moves. Nearby matching ghosts share batches of up to eight items, including intermediate recipes. The player's handcrafting queue is never used.
+- **Custom combat escorts.** A companion launches a squad of up to four small drones from the companion. They use red combat lasers and defend the owner while the crew keeps working. Squad power follows companion upgrades without adding more escorts.
 
 The crew checks for nearby enemies first, skips work without materials or placement space, and favors urgent repairs and recent player actions. Materials come from companion cargo, any chest covered by the owner's current logistics network, the player, or their vehicle. Exact reservations prevent taking an entire stack for one task. Chests marked for removal are excluded from supply and storage.
 
@@ -22,7 +20,7 @@ The work radius defaults to **48 tiles**, configurable from 12 to 96. The main c
 
 Each non-Nauvis planet, including modded planets, receives an expensive companion development technology: 2,000 research units at 60 seconds each. It uses available core science, discovery science and an identifiable planet science pack. Each completed planet improves movement, equipment and crafting, and adds one parallel crafter. Every **two planets grant another permanent companion**. Infinite promethium research grants additional companions.
 
-Mini drone movement defaults to half speed. Change **Mini drone movement speed** in runtime mod settings (0.1–2×); it applies immediately to escorts, managers and flying crafters without slowing crafting or task execution.
+Mini drone movement defaults to half speed. Change **Mini drone movement speed** in runtime mod settings (0.1 to 2×); it applies immediately to escorts, managers and flying crafters without slowing crafting or task execution.
 
 Crafting starts at **2× recipe speed**, configurable. Infinite crafting research adds 50% of the configured starting speed and one crafter per completed level; planet development adds 25% of starting speed. Bonuses apply to work already in progress.
 
@@ -42,6 +40,6 @@ Autocrafting supports enabled player-craftable recipes with normal-quality ingre
 
 Based on Companion Drones by Klonan, kubiix, MrJakobLaich and Maoman, and Gadgetroch's Factorio 2.1 fork. Maintained by Luan. GNU LGPLv3; see COPYING.LESSER and COPYING. The original release history is retained in changelog.txt.
 
-New gameplay sprites use full-color, anti-aliased Blender rendering with a physical orthographic camera. The tapered airframe has curved shoulder armor, a projecting sensor head, and four separated thrusters. It has 128 orientations with eased turning and spinning turbines. Crafters and task managers share a separate twin-fan work-arm model. Combat escorts use a swept interceptor with red optics, rear-facing plasma engines, pulsing exhaust, and flight motion; landing gear has 32 deployment poses. Editable sources and export settings are in `art/entourage`. The cover was generated with Imagegen; its prompt and asset sources are included in the source repository and omitted from the game package.
+Drone models and animations were made in Blender. Editable sources are in `art/entourage/astra/`. The cover was generated with Imagegen; its prompt is in `art/entourage/logo-prompt.txt`. Art sources are excluded from the game ZIP.
 
 Source: https://github.com/luan/companion-drones-luan

@@ -1,8 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.0.1
+Date: 2026-10-10
+  Changes:
+    - Shorten the mod name to Entourage and remove filler from its description.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.0
 Date: 2026-10-10
   Features:
-    - Rename the mod to Entourage — Companion Crew, preserving its mod ID and save data.
+    - Rename the mod to Entourage, preserving its mod ID and save data.
     - Add distinct Blender-rendered companion, utility and plasma interceptor models, icons and cover artwork.
     - Animate smooth turning, duct rotors, plasma exhaust and deploying utility landing gear.
     - Apply companion paint to armor masks across the crew, preserving unpainted hardware.
