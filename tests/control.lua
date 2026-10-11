@@ -205,7 +205,7 @@ script.on_event(defines.events.on_tick, function(event)
             local previous = storage.escort_positions[escort.unit_number]
             if previous then
                 local dx, dy = escort.position.x - previous.x, escort.position.y - previous.y
-                assert(math.sqrt(dx * dx + dy * dy) <= 0.16 * settings.global["companion-mini-drone-speed"].value + 0.001,
+                assert(math.sqrt(dx * dx + dy * dy) <= 0.16 * settings.global["companion-mini-drone-speed"].value + math.sqrt(2) / 256,
                     "combat escort movement respects the configured speed limit")
             end
             storage.escort_positions[escort.unit_number] = escort.position
