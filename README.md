@@ -26,12 +26,6 @@ Crafting starts at **2× recipe speed**, configurable. Infinite crafting researc
 
 Normal mode starts with full equipment. Challenge mode retains ordinary research upgrades for speed, combat and equipment. Legacy modes 2 and 3 now behave as normal and challenge, respectively; obsolete forgiving recipes are gone. The old challenge checkbox remains hidden as a compatibility alias. Construction and combat can be toggled separately through shortcuts and configurable hotkeys. Chatter is optional.
 
-## Updating existing saves
-
-Back up the save, then update the existing `companion-drones-luan` installation. Registered companions keep their identities and inventory; existing items and equipment remain loadable but are hidden from new crafting. `/companion` restores missing members of the researched fleet. `/reset_companions` recalls and reschedules existing companions while preserving identity and cargo.
-
-When switching from a different Companion Drones fork, mine companions while the previous fork is still enabled, disable that fork, and enable this one before loading the save. Place the old items to transfer ownership. Never enable two Companion Drones forks together.
-
 ## Current limits
 
 Autocrafting supports enabled player-craftable recipes with normal-quality ingredients and one deterministic item output. Fluids, machine-only recipes and probabilistic products require a factory. Broad multiplayer and arbitrary modpack compatibility are not guaranteed by the single-player integration suite.
