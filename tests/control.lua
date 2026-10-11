@@ -82,20 +82,31 @@ script.on_event(defines.events.on_tick, function(event)
         if duration == 30 then
             local frame = player.gui.screen.companion_crafting_queue
             assert(not frame, "crafting does not add a HUD queue")
-            local icon, gear = false, false
+            local icon, gear, utility_models = false, false, 0
             for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+                if object.type == "animation" and object.animation == "companion-manager" then utility_models = utility_models + 1 end
                 if object.type == "sprite" and object.sprite == "item/stone-furnace" then icon = object.visible end
                 if object.type == "animation" and object.animation == "companion-landing-gear" then gear = gear or object.visible end
             end
             assert(icon and gear, "crafting has an overhead icon and deployed modeled landing gear")
+            for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+                if object.type == "animation" and object.animation == "companion-manager-mask" then
+                    check(object.color.r, drone.color.r, "utility crafters inherit the companion color")
+                end
+            end
+            check(utility_models, player.surface.count_entities_filtered{name = {"companion-crafter", "companion-task-manager"}},
+                "crafters and task managers both use the utility airframe")
             check(storage.player_craft.valid, true, "craft takes recipe time before speed upgrade")
             -- Setting level 2 researches the first level through Factorio's public API.
             player.force.technologies["companion-crafting-speed-1"].level = 2
         end
         if duration and not storage.craft_deadline and player.force.technologies["companion-crafting-speed-1"].level == 2 then
             local work = player.force.recipes["stone-furnace"].energy * 60
-            storage.craft_deadline = event.tick + math.ceil((work - duration * base) / (base * 1.5)) + 5
-            assert(storage.craft_deadline < storage.craft_started + work / base, "timing check precedes unupgraded completion")
+            -- Allow deployment and return, while checking before the unupgraded delivery window.
+            local flight_budget = math.ceil(32 / settings.global["companion-mini-drone-speed"].value)
+            local crafted_work = math.max(0, duration - flight_budget) * base
+            storage.craft_deadline = event.tick + math.ceil((work - crafted_work) / (base * 1.5)) + flight_budget
+            assert(storage.craft_deadline < storage.craft_started + work / base + 2 * flight_budget, "timing check precedes unupgraded completion")
         end
         if event.tick == storage.craft_deadline then
             local output = drone.get_item_count("stone-furnace") + player.get_item_count("stone-furnace")
@@ -115,8 +126,90 @@ script.on_event(defines.events.on_tick, function(event)
             if old then assert((pos.x-old.x)^2 + (pos.y-old.y)^2 <= 0.166^2, "escorts move smoothly each tick: " .. math.sqrt((pos.x-old.x)^2 + (pos.y-old.y)^2)) end
             storage.escort_positions[robot.unit_number] = pos
         end
-        if elapsed == 370 then storage.combat_health = storage.enemy.health end
+        if elapsed == 370 then
+            storage.combat_health = storage.enemy.health
+            local bodies, masks = {}, {}
+            for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+                if object.type == "animation" and object.animation:find("^companion%-combat%-body%-") then
+                    bodies[object.target.entity.unit_number] = object.animation .. ":" .. object.animation_offset
+                elseif object.type == "animation" and object.animation:find("^companion%-combat%-mask%-") then
+                    masks[object.target.entity.unit_number] = object.animation .. ":" .. object.animation_offset
+                    check(object.color.r, drone.color.r, "combat paint inherits the companion color")
+                end
+            end
+            check(table_size(bodies), 4, "combat squad has four animated bodies")
+            check(table_size(masks), 4, "combat squad has four player-color masks")
+            for unit, frame in pairs(bodies) do check(masks[unit], frame:gsub("body", "mask"), "combat body and paint stay in phase") end
+        end
         if elapsed == 418 then check(storage.combat_health - storage.enemy.health, 160, "four escorts preserve the original 200 DPS") end
+    end
+    if elapsed >= 160 and elapsed < 200 then
+        player.walking_state = {walking = true, direction = defines.direction.east}
+    elseif elapsed == 200 then
+        player.walking_state = {walking = false}
+        local frame
+        for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+            if object.type == "animation" and object.animation == "companion-animation-1" then
+                frame = object.animation_offset
+            end
+        end
+        assert(frame and math.abs(frame - 32) <= 12, "moving east turns the companion sprite east: " .. tostring(frame) .. " owner=" .. serpent.line(player.position) .. " drone=" .. serpent.line(drone.position))
+        log("COMPANION movement-driven heading PASS")
+    end
+    if elapsed >= 200 and elapsed < 225 then
+        player.walking_state = {walking = true, direction = defines.direction.north}
+    elseif elapsed >= 225 and elapsed < 250 then
+        player.walking_state = {walking = true, direction = defines.direction.west}
+    elseif elapsed == 250 then
+        player.walking_state = {walking = false}
+    end
+    if elapsed >= 160 and elapsed < 355 then
+        check(drone.follow_target, nil, "native pathing never competes with scripted flight")
+        local pos, previous = drone.position, storage.flight_position
+        if previous then
+            local vx, vy = pos.x - previous.x, pos.y - previous.y
+            local old = storage.flight_velocity
+            if old then assert((vx - old.x)^2 + (vy - old.y)^2 <= 0.036^2,
+                "walking, stopping and reversing preserve bounded acceleration") end
+            storage.flight_velocity = {x = vx, y = vy}
+            if elapsed >= 340 then
+                assert(vx^2 + vy^2 < 0.003^2, "idle companion settles without position jitter")
+                for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+                    if object.type == "animation" and object.animation == "companion-animation-1" then
+                        if storage.idle_heading then check(object.animation_offset, storage.idle_heading,
+                            "idle companion keeps its heading") end
+                        storage.idle_heading = object.animation_offset
+                    end
+                end
+            end
+        end
+        storage.flight_position = pos
+        if elapsed == 354 then log("COMPANION smooth start, stop, reversal and idle heading PASS") end
+    end
+    if elapsed == 201 then
+        drone.color = {r = 0.1, g = 0.3, b = 0.9, a = 1}
+    elseif elapsed == 202 then
+        for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+            if object.type == "animation" and object.animation == "companion-animation-2" then
+                check(object.color.b, drone.color.b, "changing companion paint updates its visible mask")
+            end
+        end
+        player.color = {r = 0.9, g = 0.1, b = 0.2, a = 1}
+    elseif elapsed == 204 then
+        check(drone.color.r, player.color.r, "changing owner color updates companion paint")
+        log("COMPANION live companion and player color PASS")
+    end
+    if elapsed >= 366 and elapsed <= 419 then
+        storage.escort_positions = storage.escort_positions or {}
+        for _, escort in ipairs(player.surface.find_entities_filtered{name = "companion-combat-robot"}) do
+            local previous = storage.escort_positions[escort.unit_number]
+            if previous then
+                local dx, dy = escort.position.x - previous.x, escort.position.y - previous.y
+                assert(math.sqrt(dx * dx + dy * dy) <= 0.16 * settings.global["companion-mini-drone-speed"].value + 0.001,
+                    "combat escort movement respects the configured speed limit")
+            end
+            storage.escort_positions[escort.unit_number] = escort.position
+        end
     end
     if elapsed == 120 then
         check(player.get_item_count("companion"), 1, "legacy drone item is preserved")
@@ -219,6 +312,10 @@ script.on_event(defines.events.on_tick, function(event)
         check(storage.craft_chest.get_item_count("iron-plate"), 97, "recursive craft consumes exactly three iron")
         check(player.crafting_queue_size, 0, "recursive craft does not use player queue")
         for _, robot in pairs(storage.escorts or {}) do check(robot.valid, false, "single-use escort expired") end
+        for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
+            assert(object.type ~= "animation" or not object.animation:find("^companion%-combat%-"),
+                "expired combat drones leave no rendered body or paint")
+        end
         log("COMPANION network crafting and escort expiry PASS")
         storage.manager_ghosts, storage.observed_managers = {}, {}
         player.insert{name = "transport-belt", count = 48}
@@ -275,7 +372,7 @@ script.on_event(defines.events.on_tick, function(event)
         end
         assert(batch_overlay, "overhead crafting overlay shows the four-item batch")
         check(player.crafting_queue_size, 0, "batched drone crafting remains independent")
-    elseif elapsed == 2900 then
+    elseif elapsed == 3020 then
         for _, target in ipairs(storage.batch_ghosts) do check(target.valid, false, "all batch targets constructed") end
         log("COMPANION batched crafting PASS")
         for _, chest in pairs(player.surface.find_entities_filtered{type = "logistic-container"}) do chest.get_inventory(defines.inventory.chest).clear() end
@@ -289,7 +386,7 @@ script.on_event(defines.events.on_tick, function(event)
                 storage.parallel_ghosts[#storage.parallel_ghosts + 1] = ghost("stone-furnace", {group * 11 - 39 + offset * 2, 20}, nil, player.surface)
             end
         end
-    elseif elapsed == 2940 then
+    elseif elapsed == 3060 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 6, "six independent crafters work in parallel")
         check(player.get_item_count("stone"), 10, "workers reserve exact separate ingredients")
         check(player.crafting_queue_size, 0, "parallel crafting leaves player queue free")
@@ -302,7 +399,7 @@ script.on_event(defines.events.on_tick, function(event)
         for offset = 0, 1 do
             storage.parallel_ghosts[#storage.parallel_ghosts + 1] = ghost("stone-furnace", {offset * 2, -28}, nil, player.surface)
         end
-    elseif elapsed == 2980 then
+    elseif elapsed == 3100 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 7, "research unlocks a seventh parallel crafter")
         for _, landed in pairs(storage.landed_crafters) do
             check(landed.entity.position.x, landed.position.x, "landed crafter stays fixed while owner walks")
@@ -310,7 +407,7 @@ script.on_event(defines.events.on_tick, function(event)
         end
         check(player.get_item_count("stone"), 0, "new crafter reserves only its ten stone")
         check(player.surface.count_entities_filtered{name = "companion"}, 1, "worker deployment keeps the permanent companion")
-    elseif elapsed == 3500 then
+    elseif elapsed == 3620 then
         for _, target in ipairs(storage.parallel_ghosts) do check(target.valid, false, "parallel crafted targets constructed") end
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "crafters disappear after delivery")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 0, "task managers disappear after delivery")
@@ -330,7 +427,7 @@ script.on_event(defines.events.on_tick, function(event)
             force = player.force, target = storage.delivery_target,
             modules = {{id = {name = "speed-module", quality = "normal"},
                 items = {in_inventory = {{inventory = defines.inventory.crafter_modules, stack = 0, count = 1}}}}}})
-    elseif elapsed == 3580 then
+    elseif elapsed == 3700 then
         check(storage.repair_target.health, storage.repair_target.max_health, "task manager repairs exact target")
         check(storage.second_repair.health, storage.second_repair.max_health, "batched repair handles a pack durability boundary")
         check(storage.upgrade_target.valid, false, "task manager fast-replaces upgrade")
@@ -356,26 +453,26 @@ script.on_event(defines.events.on_tick, function(event)
         storage.blocked_return_chest = assert(player.surface.create_entity{name = "steel-chest", position = {-12, 12}, force = player.force})
         storage.blocked_return_chest.insert{name = "iron-plate", count = 10}
         storage.blocked_return_chest.order_deconstruction(player.force)
-    elseif elapsed == 3640 then
+    elseif elapsed == 3760 then
         check(storage.blocked_return_chest.valid, false, "full return inventories do not prevent exact chest removal")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 1, "manager retains cargo until it can be delivered")
-    elseif elapsed == 3700 then
+    elseif elapsed == 3820 then
         player.get_main_inventory().clear()
         drone.get_inventory(defines.inventory.spider_trunk).clear()
-    elseif elapsed == 3780 then
+    elseif elapsed == 3900 then
         check(player.get_item_count("iron-plate") + drone.get_item_count("iron-plate"), 10, "blocked manager returns every salvaged item")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 0, "manager disappears only after cargo delivery")
         log("COMPANION blocked return cargo conservation PASS")
-    elseif elapsed == 3790 then
+    elseif elapsed == 3910 then
         player.get_main_inventory().clear()
         drone.get_inventory(defines.inventory.spider_trunk).clear()
         for _, chest in pairs(player.surface.find_entities_filtered{type = "logistic-container"}) do chest.get_inventory(defines.inventory.chest).clear() end
         player.insert{name = "stone", count = 5}
         storage.toggle_craft = ghost("stone-furnace", {8, 25}, nil, player.surface)
-    elseif elapsed == 3810 then
+    elseif elapsed == 3930 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "craft starts before construction is disabled")
         player.set_shortcut_toggled("companion-construction-toggle", false)
-    elseif elapsed == 3830 then
+    elseif elapsed == 3955 then
         check(storage.toggle_craft.valid, true, "disabled construction does not finish reserved craft")
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "disabled construction recalls active crafters")
         check(player.get_item_count("stone") + drone.get_item_count("stone"), 5, "disabled craft refunds ingredients")
@@ -383,11 +480,11 @@ script.on_event(defines.events.on_tick, function(event)
         player.set_shortcut_toggled("companion-construction-toggle", true)
         player.insert{name = "stone", count = 5}
         storage.force_craft = ghost("stone-furnace", {8, 25}, nil, player.surface)
-    elseif elapsed == 3850 then
+    elseif elapsed == 3970 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "craft starts before force change")
         storage.original_force = player.force
         player.force = game.create_force("companion-owner-force-test")
-    elseif elapsed == 3890 then
+    elseif elapsed == 4010 then
         check(storage.force_craft.valid, true, "crew abandons previous-force target")
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "force change recalls active crafters")
         check(drone.force, player.force, "permanent companion follows owner force")
@@ -395,7 +492,7 @@ script.on_event(defines.events.on_tick, function(event)
         storage.force_craft.destroy()
         player.force = storage.original_force
         log("COMPANION construction toggle and force-change conservation PASS")
-    elseif elapsed == 3900 then
+    elseif elapsed == 4020 then
         if not script.active_mods["space-age"] then
             storage.identity = drone.unit_number
             player.character.destructible = true
@@ -408,10 +505,10 @@ script.on_event(defines.events.on_tick, function(event)
         check(player.force.technologies["companion-planet-nauvis"], nil, "no Nauvis expansion research")
         player.force.technologies["companion-planet-vulcanus"].researched = true
         player.force.technologies["companion-planet-companion-test-planet"].researched = true
-    elseif elapsed == 4020 then
+    elseif elapsed == 4140 then
         check(#player.surface.find_entities_filtered{name = "companion"}, 2, "two planet researches grant one extra drone")
         player.force.technologies["companion-promethium-1"].level = 3
-    elseif elapsed == 4140 then
+    elseif elapsed == 4260 then
         check(#player.surface.find_entities_filtered{name = "companion"}, 4, "two promethium levels grant two extras")
         storage.fleet = player.surface.find_entities_filtered{name = "companion"}
         local platform = assert(player.force.create_space_platform{
@@ -425,7 +522,7 @@ script.on_event(defines.events.on_tick, function(event)
         assert(player.teleport({0, 4}, platform.surface))
         player.insert{name = "transport-belt", count = 10}
         storage.platform_ghost = ghost("transport-belt", {10, 4}, nil, platform.surface)
-    elseif elapsed == 4260 then
+    elseif elapsed == 4380 then
         check(#storage.platform.surface.find_entities_filtered{name = "companion"}, 0, "no companions active on platform")
         check(storage.platform_ghost.valid, true, "platform work remains untouched")
         for _, companion in ipairs(storage.fleet) do check(companion.surface, storage.previous_surface, "fleet parked on previous planet") end
@@ -435,7 +532,7 @@ script.on_event(defines.events.on_tick, function(event)
         surface.force_generate_chunk_requests()
         surface.set_tiles{{name = "grass-1", position = {0, 0}}}
         assert(player.teleport({0, 0}, surface))
-    elseif elapsed == 4380 then
+    elseif elapsed == 4500 then
         for _, companion in ipairs(storage.fleet) do
             check(companion.valid, true, "fleet remains present")
             check(companion.surface, player.surface, "same fleet travels to modded planet")

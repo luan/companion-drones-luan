@@ -33,7 +33,8 @@ def run(mode):
     (harness / "data.lua").write_bytes((root / "tests/data.lua").read_bytes())
     (harness / "settings-updates.lua").write_text(
         'data.raw["int-setting"]["set-mode"].default_value = ' + str(mode)
-        + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = ' + str(4 if mode == 1 else 2))
+        + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = ' + str(4 if mode == 1 else 2)
+        + '\ndata.raw["double-setting"]["companion-mini-drone-speed"].default_value = ' + str(1 if mode == 1 else 0.5))
     scenario = qa / "scenarios/integration"
     scenario.mkdir(parents=True)
     (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/control.lua")).read_bytes())

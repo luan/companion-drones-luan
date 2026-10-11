@@ -294,39 +294,20 @@ local adjust_follow_behavior = function(player)
     local length = math.min(5 + (count * 0.33), reach)
     if count == 1 then length = 2 end
     local dong = 0.75 + (0.5 / count)
-    local shift = {x = 0, y =0}
     local speed = get_player_speed(player, 1.0)
-    if player.vehicle then
-        local orientation = player.vehicle.orientation
-        dong = dong + orientation
-        shift = rotate_vector({0, -speed * 15}, orientation)
-    elseif player.character then
-        local walking_state = player.character.walking_state
-        if walking_state.walking then
-            shift = rotate_vector({0, -speed * 15}, walking_state.direction / 8)
-        end
-    end
+    if player.vehicle then dong = dong + player.vehicle.orientation end
+    table.sort(guys, function(a, b) return a.entity.unit_number < b.entity.unit_number end)
 
     local offset = {length, 0}
     local position = player.physical_position
     for k, companion in pairs (guys) do
         local angle = (k / count) + dong
         local follow_offset = rotate_vector(offset, angle)
-        follow_offset.x = follow_offset.x + shift.x
-        follow_offset.y = follow_offset.y + shift.y
-        local target = companion.entity.follow_target
-        if not (target and target.valid) then
-            if player.character then
-                companion.entity.follow_target = player.character
-            else
-                companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
-            end
-        end
-        -- stupid solution but if it works ... is it really stupid?
-        if follow_offset and follow_offset.x and follow_offset.y and follow_offset.x <= 10000 and follow_offset.y <= 10000 then
-            companion.entity.follow_offset = follow_offset
-        end
-        companion:set_speed(speed + companion:get_distance_boost(companion.entity.autopilot_destination))
+        -- Scripted flight is the sole movement controller, including between ticks.
+        companion.entity.follow_target = nil
+        companion.entity.autopilot_destination = nil
+        companion.entity.follow_offset = follow_offset
+        companion:set_speed(speed)
         companion:charge()
     end
 end
@@ -378,23 +359,8 @@ end
 
 function Companion:clear_speed_sticker()
     if not self.speed_sticker then return end
-    self.speed_sticker.destroy()
+    if self.speed_sticker.valid then self.speed_sticker.destroy() end
     self.speed_sticker = nil
-end
-
-function Companion:get_speed_sticker()
-    if self.speed_sticker and self.speed_sticker.valid then
-        return self.speed_sticker
-    end
-    self.speed_sticker = self.entity.surface.create_entity{
-        name   = "speed-sticker",
-        target = self.entity,
-        force  = self.entity.force,
-        position = self.entity.position,
-    }
-    -- 2.1: LuaEntity.active is read-only. A freshly created sticker is already
-    -- active, so the previous `active = true` was a no-op and is dropped.
-    return self.speed_sticker
 end
 
 function Companion:get_distance_boost(position)
@@ -410,66 +376,39 @@ function Companion:clear_speed_fx()
     self.speed_fx = nil
 end
 
-function Companion:get_speed_fx()
-    local fx = self.speed_fx
-    if fx and fx.valid then
-        return fx
-    end
-    self.speed_fx = rendering.draw_animation{
-        animation    = "companion-speed-flame",
-        target       = self.entity,
-        surface      = self.entity.surface,
-        render_layer = "object",
-    }
-    return self.speed_fx
+function Companion:set_speed(speed)
+    self.speed = speed
+    -- Retire the fixed-direction booster and vehicle sticker from older saves.
+    self:clear_speed_sticker()
+    self:clear_speed_fx()
 end
 
-function Companion:set_speed(speed)
-    local factor = storage.companion_speed_factor or 1.0
-    self.speed = speed
-    self._last_speed_factor = factor
-    if not storage.base_speed then storage.base_speed = 10 end
-
-    local pos = self.entity.position
-    local tick = game.tick
-    local v = 0
-    if self._last_pos and self._last_pos_tick then
-        local dt = tick - self._last_pos_tick
-        if dt > 0 then
-            local dx = pos.x - self._last_pos.x
-            local dy = pos.y - self._last_pos.y
-            v = math.sqrt(dx*dx + dy*dy) / dt
-        end
-    end
-    self._last_pos = pos
-    self._last_pos_tick = tick
-
-    if v > 0.015 then
-        local sticker = self:get_speed_sticker()
-        if sticker and sticker.valid then
-            sticker.time_to_live = 11
-            -- 2.1: LuaEntity.active is read-only; the sticker stays active by default.
-        end
-        local fx = self:get_speed_fx()
-        if fx and fx.valid then
-            fx.time_to_live = 11
-
-            local S_MIN  = 0.15
-            local S_MAX  = 1.0
-            local V_FULL = 0.11
-            local SENS   = 100.0
-
-            local GAIN = (1.0 - S_MIN) / math.log(1 + SENS * V_FULL)
-            local s = S_MIN + GAIN * math.log(1 + SENS * v)
-            if s > S_MAX then s = S_MAX end
-
-            fx.x_scale = s
-            fx.y_scale = s
-        end
-    else
-        self:clear_speed_sticker()
-        self:clear_speed_fx()
-    end
+function Companion:update_flight()
+    local player, entity = self.player, self.entity
+    if not player.connected or not player.character or player.physical_surface.platform
+        or entity.surface ~= player.physical_surface then return end
+    local offset = entity.follow_offset or {x = 2, y = 0}
+    local ox, oy = offset.x or offset[1], offset.y or offset[2]
+    local length = math.sqrt(ox^2 + oy^2)
+    local scale = length > 6 and 6 / length or 1
+    local owner, pos = player.physical_position, entity.position
+    local dx, dy = owner.x + ox * scale - pos.x, owner.y + oy * scale - pos.y
+    local distance = math.sqrt(dx^2 + dy^2)
+    -- Flight bypasses spider leg pathing, which can stall despite a valid follow target.
+    entity.follow_target, entity.autopilot_destination = nil, nil
+    local velocity = self.flight_velocity or {x = 0, y = 0}
+    -- Overdamped following settles without overshoot; acceleration is bounded on direction changes.
+    local ax, ay = dx * 0.015 - velocity.x * 0.3, dy * 0.015 - velocity.y * 0.3
+    local acceleration = math.sqrt(ax^2 + ay^2)
+    local gain = acceleration > 0.035 and 0.035 / acceleration or 1
+    local vx, vy = velocity.x + ax * gain, velocity.y + ay * gain
+    local speed = math.sqrt(vx^2 + vy^2)
+    local limit = math.max(eff_base(player) * 0.05, get_player_speed(player, 1) * 1.4)
+        * (storage.companion_speed_factor or 1)
+    if speed > limit then vx, vy = vx * limit / speed, vy * limit / speed end
+    if distance < 0.02 and speed < 0.003 then vx, vy = 0, 0 end
+    self.flight_velocity = {x = vx, y = vy}
+    if vx ~= 0 or vy ~= 0 then entity.teleport({pos.x + vx, pos.y + vy}) end
 end
 
 function Companion:get_speed()
@@ -792,8 +731,8 @@ function Companion:return_to_player()
         self:try_to_shove_inventory()
     end
     self:set_speed(math.max(eff_base(self.player) * 0.8, get_player_speed(self.player, 1)))
-    if self.player.character then self.entity.follow_target = self.player.character
-    else self.entity.autopilot_destination = self.player.physical_position end
+    self.entity.follow_target = nil
+    self.entity.autopilot_destination = nil
 end
 
 function Companion:take_item(item, target)
@@ -856,11 +795,12 @@ function Companion:deploy_combat_robots()
     pd.combat_sources = pd.combat_sources or {}
     pd.combat_slots = pd.combat_slots or {}
     for id, robot in pairs(pd.combat_robots) do
-        if not robot.valid then pd.combat_robots[id] = nil; pd.combat_sources[id] = nil
+        if not robot.valid then pd.combat_robots[id] = nil; pd.combat_sources[id] = nil; pd.combat_slots[id] = nil
         elseif robot.surface ~= self.player.physical_surface then
             robot.destroy()
             pd.combat_robots[id] = nil
             pd.combat_sources[id] = nil
+            pd.combat_slots[id] = nil
         end
     end
     local stats = pd.stats or set_companion_stats(self.player)
@@ -1117,6 +1057,7 @@ function Companion:teleport(position, surface)
     self:cancel_job(false)
     self:clear_speed_sticker()
     self:clear_speed_fx()  
+    self.flight_velocity = nil
     self.entity.teleport(position, surface)
     self:set_active()
 end
@@ -1407,9 +1348,15 @@ local function update_combat_robots()
                         owner.y - 1.5 + math.sin(angle) * 2 - pos.y
                     local distance = math.sqrt(dx * dx + dy * dy)
                     if distance > 0.01 then
-                        local step = math.min(0.12, 0.16 / distance)
+                        local heading = math.atan2(dx, -dy) / (2 * math.pi) % 1
+                        local turn = (heading - robot.orientation + 0.5) % 1 - 0.5
+                        robot.orientation = (robot.orientation + math.max(-0.02, math.min(0.02, turn * 0.25))) % 1
+                        local step = math.min(1, math.min(0.12, 0.16 / distance)
+                            * settings.global["companion-mini-drone-speed"].value)
                         robot.teleport({pos.x + dx * step, pos.y + dy * step})
                     end
+                    local source = get_companion(pd.combat_sources[id])
+                    visuals.update_combat(robot, source and source.entity.color or player.color, slot)
                 end
             end
         end
@@ -1435,6 +1382,7 @@ local on_tick = function(event)
                 companion:update_crafting()
                 workers.update_managers(companion)
             end
+            companion:update_flight()
             visuals.update(companion)
             workers.visuals(companion)
         end

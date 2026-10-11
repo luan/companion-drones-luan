@@ -1,4 +1,6 @@
 local visuals = {}
+local main_pods = {{-.63, -.38}, {.63, -.38}, {-.63, .39}, {.63, .39}}
+local manager_pods = {{-.43, .10}, {.43, .10}}
 
 function visuals.can_land(companion)
     local player, entity = companion.player, companion.entity
@@ -23,12 +25,14 @@ function visuals.clear(companion)
 end
 
 local function body(entity, color)
+    local manager = entity.name == "companion-task-manager" or entity.name == "companion-crafter"
     local objects = {rendering.draw_sprite{sprite = "companion-ground-shadow",
         surface = entity.surface, target = entity.position, render_layer = "object"}}
     for _, part in ipairs{"base_animation", "animation"} do
         for index = 1, 2 do
             objects[#objects + 1] = rendering.draw_animation{
-                animation = "companion-" .. part .. "-" .. index,
+                animation = manager and part == "animation" and (index == 1 and "companion-manager" or "companion-manager-mask")
+                    or "companion-" .. part .. "-" .. index,
                 animation_speed = 0, surface = entity.surface, target = entity.position,
                 tint = index == 2 and color or {1, 1, 1}, render_layer = "air-object"}
         end
@@ -38,7 +42,35 @@ local function body(entity, color)
             animation_speed = 0, surface = entity.surface, target = entity.position,
             tint = index == 6 and {0, 0, 0, 0.25} or {1, 1, 1}, render_layer = "object", visible = false}
     end
+    local pods = manager and manager_pods or main_pods
+    for index in ipairs(pods) do
+        objects[index + 7] = rendering.draw_animation{animation = "companion-turbine",
+            animation_speed = 0.8, animation_offset = index * 3, surface = entity.surface,
+            target = entity.position, render_layer = "arrow"}
+    end
     return objects
+end
+
+function visuals.update_combat(entity, color, slot)
+    local state = slot.visuals
+    if not state or not state.body[1].valid or not state.body[2].valid then
+        visuals.clear(slot)
+        state = {body = {}}
+        for index, animation in ipairs{"companion-combat-body-1", "companion-combat-mask-1"} do
+            state.body[index] = rendering.draw_animation{animation = animation, animation_speed = 0,
+                surface = entity.surface, target = entity, tint = index == 2 and color or {1, 1, 1},
+                render_layer = "air-object"}
+        end
+        slot.visuals = state
+    end
+    -- Both layers must use the same direction and plasma/banking pose.
+    local frame = math.floor(entity.orientation * 128 + 0.5) % 128
+    local pose = math.floor(game.tick * 0.4) % 4 + 1
+    for index, object in ipairs(state.body) do
+        object.animation = "companion-combat-" .. (index == 1 and "body-" or "mask-") .. pose
+        object.animation_offset = frame
+        if index == 2 then object.color = color end
+    end
 end
 
 local function effects(entity, craft)
@@ -58,16 +90,28 @@ local function effects(entity, craft)
     return objects
 end
 
-function visuals.update(companion)
+function visuals.update(companion, color)
     local entity, craft = companion.entity, companion.craft
+    color = color or entity.color or companion.player.color
+    local utility = entity.name == "companion-task-manager" or entity.name == "companion-crafter"
+    local model = utility and "companion-manager" or "companion-animation-1"
+    local revision = 3
     local state = companion.visuals
-    if state and (state.surface ~= entity.surface or not state.body[1].valid or not state.body[7]) then
+    if state and (state.revision ~= revision or state.model ~= model or state.surface ~= entity.surface or not state.body[1].valid or not state.body[7] or not state.body[8]) then
         visuals.clear(companion)
         state = nil
     end
     if not state then
-        state = {surface = entity.surface, altitude = 2, body = body(entity, companion.player.color)}
+        state = {revision = revision, model = model, surface = entity.surface, altitude = 2, orientation = companion.worker and craft and 0.5 or companion.facing or entity.orientation, body = body(entity, color)}
         companion.visuals = state
+    end
+    if not companion.worker then
+        local current, previous = companion.player.color, state.owner_color
+        -- Factorio has no color-change event; observe the owner while preserving manual drone paint.
+        if previous and (current.r ~= previous.r or current.g ~= previous.g
+            or current.b ~= previous.b or current.a ~= previous.a) then entity.color = current end
+        state.owner_color = current
+        color = entity.color or current
     end
     local landed = craft and (companion.worker and companion.landed and not craft.finished
         or not companion.worker and visuals.can_land(companion))
@@ -77,17 +121,52 @@ function visuals.update(companion)
     if companion.worker then
         for _, object in ipairs(state.body) do object.x_scale = 0.55; object.y_scale = 0.55 end
     end
-    local torso = {pos.x, pos.y - state.altitude}
+    -- Crafters retain a fixed tool-facing pose so their articulated landing feet align.
+    local facing = companion.worker and craft and 0.5 or companion.facing or state.heading or entity.orientation
+    if not companion.worker then
+        -- The legless spider does not update native orientation while following.
+        local previous = state.position
+        if previous then
+            local dx, dy = pos.x - previous.x, pos.y - previous.y
+            local distance = dx * dx + dy * dy
+            if distance > 0.01^2 and distance < 24^2 then
+                facing = math.atan2(dx, -dy) / (2 * math.pi) % 1
+            end
+        end
+    end
+    state.position, state.heading = pos, facing
+    state.orientation = state.orientation or facing
+    local turn = (facing - state.orientation + 0.5) % 1 - 0.5
+    state.orientation = (state.orientation + math.max(-0.0125, math.min(0.0125, turn * 0.25))) % 1
+    local hover = landed and 0 or math.sin(game.tick * math.pi / 90 + entity.unit_number) * 0.10
+    local torso = {pos.x, pos.y - state.altitude + hover}
     state.body[1].target = pos
     for index = 2, 5 do
         state.body[index].target = torso
-        state.body[index].animation_offset = index >= 4 and math.floor(entity.orientation * 64) % 64 or 0
-        if index % 2 == 1 then state.body[index].color = companion.player.color end
+        state.body[index].animation_offset = index >= 4 and math.floor(state.orientation * 128 + 0.5) % 128 or 0
+        if index % 2 == 1 then state.body[index].color = color end
+    end
+    local pods = utility and manager_pods or main_pods
+    -- Same orthographic projection and pixel density as the Blender camera.
+    local displayed_heading = math.floor(state.orientation * 128 + 0.5) % 128 / 128
+    local angle = math.pi - displayed_heading * math.pi * 2
+    local cos, sin = math.cos(angle), math.sin(angle)
+    local scale = companion.worker and 0.55 or 1
+    local rotor_height = utility and 0.21375 or 0.285
+    for index, pod in ipairs(pods) do
+        local x, y = pod[1] * cos - pod[2] * sin, pod[1] * sin + pod[2] * cos
+        local rotor = state.body[index + 7]
+        rotor.target = {torso[1] + x * 320 / 2.6 * 0.25 / 32 * scale,
+            torso[2] - (y * 0.82682 + (rotor_height - 0.18) * 0.56246) * 320 / 2.6 * 0.25 / 32 * scale}
+        rotor.x_scale = scale * (utility and 0.75 or 1)
+        rotor.y_scale = rotor.x_scale
+        rotor.render_layer = "arrow" -- Keep rear turbines above their opaque motor wells.
+        rotor.animation_speed = landed and 0 or 0.8
     end
     local extension = math.max(0, math.min(1, (2 - state.altitude) / 1.75))
     for index = 6, 7 do
-        state.body[index].target = {pos.x, pos.y - state.altitude + 0.25 + (index == 6 and 0.08 or 0)}
-        state.body[index].animation_offset = math.floor(extension * 5 + 0.5)
+        state.body[index].target = {torso[1], torso[2] + (index == 6 and 0.08 or 0)}
+        state.body[index].animation_offset = math.floor(extension * 31 + 0.5)
         state.body[index].visible = extension > 0.05
     end
     if not craft then

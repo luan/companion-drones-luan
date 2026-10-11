@@ -3,7 +3,9 @@ Version: 4.0.0
 Date: 2026-10-10
   Features:
     - Rename the mod to Entourage — Companion Crew, preserving its mod ID and save data.
-    - Add a new industrial airframe, icons, landing gear and cover artwork.
+    - Add distinct Blender-rendered companion, utility and plasma interceptor models, icons and cover artwork.
+    - Animate smooth turning, duct rotors, plasma exhaust and deploying utility landing gear.
+    - Apply companion paint to armor masks across the crew, preserving unpainted hardware.
     - Give each player a permanent companion that follows between planets and survives death.
     - Deploy up to six managers with exact task batches and private construction inventories.
     - Deploy six independent stationary crafters, with batch planning and overhead progress.
@@ -13,12 +15,14 @@ Date: 2026-10-10
     - Grant another companion per two developed planets, plus infinite promethium expansion.
     - Start crafting at configurable 2x speed; research improves speed and crafter capacity.
   Changes:
+    - Default mini drone movement to half speed with an immediately adjustable runtime setting.
     - Remove fuel, charging delays and obsolete drone/equipment crafting recipes.
     - Preserve legacy items, equipment and mode settings for existing saves.
     - Separate gentle cyan construction beams from red combat lasers.
     - Keep companions near the owner and suspend their work on space platforms.
     - Skip blocked or unaffordable work without monopolizing the task queue.
   Bugfixes:
+    - Remove competing native flight steering to keep following, stopping and turning smooth.
     - Reserve exact item counts instead of taking all matching inventory items.
     - Preserve full-chest salvage, repair-pack durability and cargo awaiting return space.
     - Cache supply and recipe checks during dispatch to avoid repeated inventory scans.

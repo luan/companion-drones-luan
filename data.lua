@@ -322,11 +322,13 @@ local drone =
   }
 
 }
--- Render the new airframe in the same 64 orientation slots as the saved actors.
+-- Render the new airframe in the 128 smoothly turning orientation slots as the saved actors.
 drone.graphics_set.base_animation = {layers = {util.empty_sprite(), util.empty_sprite()}}
 drone.graphics_set.animation = {layers = {
     {filename = "__companion-drones-luan__/sprites/entourage-body.png", width = 320, height = 320,
-        direction_count = 64, line_length = 8, scale = 0.25}, util.empty_sprite(),
+        direction_count = 128, line_length = 8, scale = 0.25},
+    {filename = "__companion-drones-luan__/sprites/entourage-mask.png", width = 320, height = 320,
+        direction_count = 128, line_length = 8, scale = 0.25, apply_runtime_tint = true},
 }}
 -- Script rendering lowers the same persistent entity when its landing feet deploy.
 for _, part in ipairs{"base_animation", "animation"} do
@@ -344,12 +346,34 @@ end
 drone.graphics_set.shadow_animation = util.empty_sprite()
 drone.graphics_set.shadow_base_animation = util.empty_sprite()
 data:extend{
+    {type = "animation", name = "companion-manager",
+        filename = "__companion-drones-luan__/sprites/task-manager.png", width = 320, height = 320,
+        frame_count = 128, line_length = 8, scale = 0.25},
+    {type = "animation", name = "companion-manager-mask",
+        filename = "__companion-drones-luan__/sprites/task-manager-mask.png", width = 320, height = 320,
+        frame_count = 128, line_length = 8, scale = 0.25},
+    {type = "animation", name = "companion-turbine",
+        filename = "__companion-drones-luan__/sprites/turbine.png", width = 96, height = 96,
+        frame_count = 16, line_length = 8, scale = 0.25},
     {type = "animation", name = "companion-landing-gear",
-        filename = "__companion-drones-luan__/sprites/landing-gear.png", width = 256, height = 256,
-        frame_count = 6, line_length = 6, scale = 0.25},
+        filename = "__companion-drones-luan__/sprites/landing-gear.png", width = 320, height = 320,
+        frame_count = 32, line_length = 8, scale = 0.25},
     {type = "sprite", name = "companion-work-glow", filename = "__core__/graphics/light-medium.png",
         width = 300, height = 300, scale = 0.12, blend_mode = "additive-soft"},
 }
+-- Animation prototypes allow at most 255 frames; keep each flight pose's 128 headings separate.
+for pose = 0, 3 do
+    for _, part in ipairs{"body", "mask"} do
+        local stripes = {}
+        for direction = 0, 127 do
+            local frame = direction * 4 + pose
+            stripes[#stripes + 1] = {filename = "__companion-drones-luan__/sprites/combat-drone" .. (part == "mask" and "-mask" or "") .. ".png",
+                width_in_frames = 1, height_in_frames = 1, x = frame % 16 * 256, y = math.floor(frame / 16) * 256}
+        end
+        data:extend{{type = "animation", name = "companion-combat-" .. part .. "-" .. (pose + 1),
+            width = 256, height = 256, frame_count = 128, scale = 0.175, stripes = stripes}}
+    end
+end
 data:extend{{type = "sprite", name = "companion-ground-shadow",
     filename = "__companion-drones-luan__/sprites/shadow.png", width = 256, height = 256,
     scale = 0.15, draw_as_shadow = true}}
@@ -1127,10 +1151,9 @@ escort.dying_explosion = nil
 escort.icon = "__companion-drones-luan__/sprites/drone-icon.png"
 escort.icon_size = 200
 local mini = spidertron_torso_graphics_set(0.3)
-mini.animation = {filename = "__companion-drones-luan__/sprites/entourage-body.png",
-    width = 320, height = 320, direction_count = 64, line_length = 8, scale = 0.14}
-escort.idle = mini.animation
-escort.in_motion = table.deepcopy(mini.animation)
+-- Body and player-color paint share one scripted animation phase.
+escort.idle = util.empty_sprite()
+escort.in_motion = util.empty_sprite()
 escort.shadow_idle = mini.shadow_animation
 escort.shadow_in_motion = table.deepcopy(mini.shadow_animation)
 escort.water_reflection = nil

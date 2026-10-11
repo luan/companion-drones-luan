@@ -58,8 +58,10 @@ local function move(worker, position, surface, speed)
         worker.entity.destructible = false
         return true
     end
+    speed = speed * settings.global["companion-mini-drone-speed"].value
     local pos = worker.entity.position
     local distance = tasks.distance(pos, position)
+    if distance > 0.01 then worker.facing = math.atan2(position.x - pos.x, pos.y - position.y) / (2 * math.pi) % 1 end
     if distance <= speed then worker.entity.teleport(position); return true end
     worker.entity.teleport({pos.x + (position.x - pos.x) * speed / distance,
         pos.y + (position.y - pos.y) * speed / distance})
@@ -92,7 +94,7 @@ function workers.update_crafters(companion, speed)
         end
         if not craft.finished then
             if not worker.landed then worker.landed = move(worker, landing.position, landing.surface, 0.6) end
-            if worker.landed and not away then
+            if worker.landed and worker.visuals and worker.visuals.altitude <= 0.3 and not away then
                 craft.remaining = math.max(0, craft.remaining - (game.tick - craft.last_tick) * speed)
             end
         end
@@ -115,7 +117,9 @@ function workers.update_crafters(companion, speed)
             craft.finished = true -- Ineligible recipes return their original ingredients.
         end
         if craft.finished then
-            if move(worker, companion.entity.position, companion.entity.surface, 2)
+            -- Retract the feet and lift off before moving; keep delivered cargo safe throughout.
+            if (not worker.visuals or worker.visuals.altitude >= 1.95)
+                and move(worker, companion.entity.position, companion.entity.surface, 0.6)
                 and workers.return_inventory(companion, worker.inventory) then
                 remove(worker)
                 table.remove(companion.crafters, index)
@@ -291,7 +295,7 @@ end
 function workers.visuals(companion)
     if not companion.player.character or companion.player.physical_surface.platform then return end
     for _, group in ipairs{companion.crafters or {}, companion.managers or {}} do
-        for _, worker in ipairs(group) do if worker.entity.valid then visuals.update(worker) end end
+        for _, worker in ipairs(group) do if worker.entity.valid then visuals.update(worker, companion.entity.color or companion.player.color) end end
     end
 end
 

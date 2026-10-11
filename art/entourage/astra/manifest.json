@@ -1,0 +1,172 @@
+{
+  "status": "design approved; full export supported; integration owned by primary agent",
+  "source": "create.py",
+  "renderer": "render.py (adapted from ../render.py)",
+  "camera": {
+    "orthographic_scale": 2.6,
+    "location": [
+      0,
+      -6,
+      9
+    ],
+    "target": [
+      0,
+      0,
+      0.18
+    ],
+    "screen_up_basis": [
+      0,
+      0.8268218719420735,
+      0.5624638584639955
+    ],
+    "final_pixels_per_blender_unit": 123.07692307692307,
+    "native_tiles_per_blender_unit_at_main_scale": 0.9615384615384615
+  },
+  "views": 16,
+  "roles": {
+    "main": {
+      "source": "entourage.blend",
+      "frame_cell": 320,
+      "scale": 0.25,
+      "rotor_overlay_required": true
+    },
+    "utility": {
+      "source": "manager.blend",
+      "frame_cell": 320,
+      "scale": 0.25,
+      "runtime_scale": 0.55,
+      "rotor_overlay_required": true
+    },
+    "combat": {
+      "source": "combat.blend",
+      "frame_cell": 256,
+      "scale": 0.175,
+      "poses": 4
+    }
+  },
+  "limitations": [
+    "Native runtime validation is owned by primary agent",
+    "Body preview views sample 16 headings; --full exports all 128 body headings or 512 combat direction/pose frames",
+    "Full body export excludes moving impellers; baked hubs remain"
+  ],
+  "attachments": {
+    "rotor": {
+      "source": "rotor.blend",
+      "atlas": "rotor.png",
+      "frame_count": 16,
+      "line_length": 8,
+      "cell": [
+        96,
+        96
+      ],
+      "render_size": [
+        192,
+        192
+      ],
+      "orthographic_scale": 0.78,
+      "camera_location": [
+        0,
+        -6,
+        8.82
+      ],
+      "camera_target": [
+        0,
+        0,
+        0
+      ],
+      "blades": 9,
+      "phase_step_radians": 0.04363323129985824,
+      "rendered_parts": "moving impellers only; retained hub and duct mouth use holdout alpha",
+      "mouth_mask_radius": 0.128,
+      "mouth_mask_z_above_blades": 0.065,
+      "hub_mask_radius": 0.0355,
+      "main_centers": [
+        [
+          -0.63,
+          -0.38,
+          0.285
+        ],
+        [
+          0.63,
+          -0.38,
+          0.285
+        ],
+        [
+          -0.63,
+          0.39,
+          0.285
+        ],
+        [
+          0.63,
+          0.39,
+          0.285
+        ]
+      ],
+      "utility_centers": [
+        [
+          -0.43,
+          0.1,
+          0.21375
+        ],
+        [
+          0.43,
+          0.1,
+          0.21375
+        ]
+      ],
+      "utility_rotor_extra_scale": 0.75,
+      "screen_offset_formula": "pixels_x = rotated_x * 320/2.6; pixels_y = -(rotated_y * screen_up_y + (z - 0.18) * screen_up_z) * 320/2.6; rotate local XY by pi - orientation * 2pi, then apply sprite scale and utility scale"
+    },
+    "landing_gear": {
+      "source": "landing-gear.blend",
+      "atlas": "landing-gear.png",
+      "frame_count": 32,
+      "line_length": 8,
+      "cell": [
+        320,
+        320
+      ],
+      "render_size": [
+        640,
+        640
+      ],
+      "orientation": 0.5,
+      "rotation_radians": 0,
+      "anchor": "same center as utility body; no additional offset",
+      "layer": "behind body",
+      "mount_z": 0.18,
+      "sole_z": -0.6604580411943624,
+      "landed_altitude_tiles": 0.25,
+      "runtime_scale": 0.55,
+      "deployment": "four articulated upper castings and telescopic lower struts; cubic eased poses; reverse frames for retract"
+    }
+  },
+  "player_color": {
+    "export_flag": "--mask",
+    "material": "armor",
+    "additional_outer_plate_prefixes": [
+      "Overlapping cheek plate",
+      "Port shoulder",
+      "Starboard shoulder",
+      "Utility rear shell"
+    ],
+    "occlusion": "nonpaint meshes and curves are transparent holdouts",
+    "preview": "player-color-preview.png",
+    "neutral_rgb_max_channel_difference": 2,
+    "preview_paint_gray_p05_p95": {
+      "main": [
+        144,
+        192
+      ],
+      "utility": [
+        146,
+        190
+      ],
+      "combat": [
+        127,
+        198
+      ]
+    },
+    "frame_layout": "identical to each base body atlas"
+  }
+}
