@@ -971,7 +971,7 @@ function Companion:try_to_craft(item, keys, recipes)
             if stack.quality == "normal" then available[stack.name] = (available[stack.name] or 0) + stack.count end
         end
     end
-    local plan = crafting.plan(recipes or crafting.recipes(self.player), available, item.name, item.count)
+    local plan = crafting.plan(crafting.recipes(self.player, item.name, recipes), available, item.name, item.count)
     if not plan then return false end
     local function slots(items)
         local count = 0
@@ -1234,7 +1234,7 @@ function Companion:try_to_find_work()
     for _, task in ipairs(craftable) do task.onboard = false end
     table.sort(craftable, tasks.less)
     local assigned, failed_crafts = {}, {}
-    local recipes = #craftable > 0 and crafting.recipes(self.player) or nil
+    local recipes = {}
     for _, task in ipairs(craftable) do
         if not assigned[task.key] then
             local batch, count = {task}, task.item.count
@@ -1266,11 +1266,12 @@ function Companion:try_to_find_work()
 end
 
 local check_job_search = function(event)
+    local interval = math.min(storage.companion_update_interval, 5)
     -- Inactive companions still check owner threats before considering construction.
     for _, pd in pairs(script_data.player_data) do
         for unit in pairs(pd.companions) do
             local companion = get_companion(unit)
-            if companion and not companion.active then companion:update() end
+            if companion and not companion.active and unit % interval == event.tick % interval then companion:update() end
         end
     end
 end
@@ -1376,6 +1377,7 @@ local on_tick = function(event)
     end
     update_combat_robots()
     update_active_companions(event) -- must run every tick
+    check_job_search(event)
     for _, companion in pairs(script_data.companions) do
         if companion.entity.valid then
             if companion.player.connected and companion.player.character and not companion.player.physical_surface.platform then
@@ -1391,7 +1393,6 @@ local on_tick = function(event)
     -- Safety checks stay bounded even when expensive work searches are slowed down.
         check_follow_update(event)
         check_and_restore_construction_bots()
-		check_job_search(event)
         check_inactive_idle_chatter(event)
     end
 end

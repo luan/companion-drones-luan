@@ -540,6 +540,28 @@ script.on_event(defines.events.on_tick, function(event)
             check(companion.valid, true, "fleet remains present")
             check(companion.surface, player.surface, "same fleet travels to modded planet")
         end
+        for _, companion in ipairs(storage.fleet) do companion.get_inventory(defines.inventory.spider_trunk).clear() end
+        player.get_main_inventory().clear()
+        player.insert{name = "stone", count = 5}
+        player.force.recipes["stone-furnace"].enabled = false
+        storage.recipe_ghost = ghost("stone-furnace", {5, 0}, nil, player.surface)
+    elseif elapsed == 4530 then
+        check(storage.recipe_ghost.valid, true, "disabled recipe stays unavailable after cached lookup")
+        check(player.get_item_count("stone"), 5, "disabled recipe does not reserve ingredients")
+        player.force.recipes["stone-furnace"].enabled = true
+    elseif elapsed == 4560 then
+        check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "reenabling a recipe starts its craft")
+        player.force.recipes["stone-furnace"].enabled = false
+    elseif elapsed == 4720 then
+        check(storage.recipe_ghost.valid, true, "recipe disabled during crafting does not produce an item")
+        local stone = player.get_item_count("stone")
+        for _, companion in ipairs(storage.fleet) do stone = stone + companion.get_item_count("stone") end
+        check(stone, 5, "disabled recipe refunds reserved ingredients")
+        check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "disabled recipe crafter returns")
+        player.force.recipes["stone-furnace"].enabled = true
+    elseif elapsed == 5000 then
+        check(storage.recipe_ghost.valid, false, "reenabled recipe builds after cancellation")
+        log("COMPANION live recipe eligibility and crafting refund PASS")
         storage.identity = drone.unit_number
         player.character.destructible = true
         player.character.die()

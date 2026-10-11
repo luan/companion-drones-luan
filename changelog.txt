@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.0.4
+Date: 2026-10-11
+  Optimizations:
+    - Look up only recipes needed for autocrafting instead of rebuilding the full recipe list.
+    - Cache recipe names while checking current unlocks, crafting permissions and planet restrictions.
+    - Spread idle companion work scans across ticks without reducing their frequency.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.3
 Date: 2026-10-10
   Bugfixes:

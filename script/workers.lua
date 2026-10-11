@@ -69,7 +69,6 @@ local function move(worker, position, surface, speed)
 end
 
 function workers.update_crafters(companion, speed)
-    local allowed
     for index = #(companion.crafters or {}), 1, -1 do
         local worker = companion.crafters[index]
         local craft = worker.craft
@@ -100,14 +99,10 @@ function workers.update_crafters(companion, speed)
         end
         craft.last_tick = game.tick
         if craft.remaining == 0 and not craft.finished then
-            allowed = allowed or {}
-            if not next(allowed) then
-                for _, recipes in pairs(crafting.recipes(companion.player)) do
-                    for _, recipe in ipairs(recipes) do allowed[recipe.name] = true end
-                end
-            end
             local valid = true
-            for _, name in ipairs(craft.plan.steps) do if not allowed[name] then valid = false end end
+            for _, name in ipairs(craft.plan.steps) do
+                if not crafting.recipe(companion.player, name) then valid = false; break end
+            end
             if valid then
                 craft.inventory.clear()
                 for name, count in pairs(craft.plan.outputs) do

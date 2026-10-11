@@ -47,40 +47,57 @@ function crafting.plan(recipes, available, name, count)
     end
 end
 
-function crafting.recipes(player)
-    local result = {}
+local candidates = {}
+
+-- Cache prototype membership only; unlocks, handcraft permissions and surfaces remain live.
+function crafting.recipe(player, name)
+    local recipe = player.force.recipes[name]
+    if not recipe or not player.character or not recipe.enabled or recipe.hidden
+        or recipe.prototype.hidden_from_player_crafting
+        or player.force.get_hand_crafting_disabled_for_recipe(name) then return end
     local categories = player.character.prototype.crafting_categories
-    for name, recipe in pairs(player.force.recipes) do
-        local supported = false
-        for _, category in pairs(recipe.categories) do
-            if categories[category] then supported = true end
-        end
-        if recipe.enabled and supported and not recipe.hidden and not recipe.prototype.hidden_from_player_crafting
-            and not player.force.get_hand_crafting_disabled_for_recipe(name) then
-            local valid = true
-            for _, condition in pairs(recipe.prototype.surface_conditions or {}) do
-                local value = player.physical_surface.get_property(condition.property)
-                if condition.min and value < condition.min or condition.max and value > condition.max then valid = false end
-            end
-            for _, ingredient in pairs(recipe.ingredients) do if ingredient.type ~= "item" then valid = false end end
-            if valid and #recipe.products == 1 then
-                for _, product in pairs(recipe.products) do
-                    if product.type == "item" and product.amount and (product.probability or 1) == 1 then
-                        result[product.name] = result[product.name] or {}
-                        result[product.name][#result[product.name] + 1] = {name = name,
-                            amount = product.amount, ingredients = recipe.ingredients, energy = recipe.energy,
-                            intermediate = recipe.prototype.allow_as_intermediate}
-                    end
-                end
-            end
+    local supported = false
+    for _, category in pairs(recipe.categories) do
+        if categories[category] then supported = true end
+    end
+    if not supported then return end
+    for _, condition in pairs(recipe.prototype.surface_conditions or {}) do
+        local value = player.physical_surface.get_property(condition.property)
+        if condition.min and value < condition.min or condition.max and value > condition.max then return end
+    end
+    for _, ingredient in pairs(recipe.ingredients) do if ingredient.type ~= "item" then return end end
+    if #recipe.products ~= 1 then return end
+    local product = recipe.products[1]
+    if product.type ~= "item" or not product.amount or (product.probability or 1) ~= 1 then return end
+    return {name = name, amount = product.amount, ingredients = recipe.ingredients, energy = recipe.energy,
+        intermediate = recipe.prototype.allow_as_intermediate}
+end
+
+function crafting.recipes(player, item, result)
+    result = result or {}
+    if result[item] then return result end
+    if not candidates[item] then
+        local names = {}
+        for name in pairs(prototypes.get_recipe_filtered{
+            {filter = "has-product-item", elem_filters = {{filter = "name", name = item}}},
+            {filter = "hidden", invert = true, mode = "and"},
+            {filter = "hidden-from-player-crafting", invert = true, mode = "and"},
+        }) do names[#names + 1] = name end
+        candidates[item] = names
+    end
+    local recipes = {}
+    result[item] = recipes -- Mark visited before collecting cyclic ingredient recipes.
+    for _, name in ipairs(candidates[item]) do
+        local recipe = crafting.recipe(player, name)
+        if recipe then
+            recipes[#recipes + 1] = recipe
+            for _, ingredient in ipairs(recipe.ingredients) do crafting.recipes(player, ingredient.name, result) end
         end
     end
-    for item, recipes in pairs(result) do
-        table.sort(recipes, function(a, b)
-            if (a.name == item) ~= (b.name == item) then return a.name == item end
-            return a.name < b.name
-        end)
-    end
+    table.sort(recipes, function(a, b)
+        if (a.name == item) ~= (b.name == item) then return a.name == item end
+        return a.name < b.name
+    end)
     return result
 end
 
