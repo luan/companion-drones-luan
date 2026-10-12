@@ -17,6 +17,10 @@ if data.raw.planet and data.raw.planet.nauvis then
         effects = {{type = "unlock-space-location", space_location = planet.name}},
         unit = {count = 10, time = 1, ingredients = {{pack.name, 1}}},
     }}
+    if APS then
+        APS.add_planet{name = planet.name, filename = "__companion-integration-tests__/aps-planet",
+            technology = "companion-test-discovery"}
+    end
 end
 
 -- Long enough to observe independent crafting speed and an in-flight upgrade.
