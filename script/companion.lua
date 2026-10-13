@@ -2,6 +2,7 @@ local tasks = require("script/tasks")
 local crafting = require("script/crafting")
 local workers = require("script/workers")
 local visuals = require("script/visuals")
+local supply = require("script/supply")
 local mode = settings.startup["set-mode"].value
 -- Preserve old saves that selected the former challenge-mode switch.
 if settings.startup["set-challenge-mode"].value and mode % 2 == 0 then mode = mode + 1 end
@@ -162,6 +163,10 @@ local function set_companion_stats(player)
     stats.max_companions = 1 + math.floor(planets / 2) + (promethium and promethium.level - 1 or 0)
     stats.planet_upgrades = planets
     stats.base_speed = stats.base_speed * (1 + planets * 0.1)
+    for name, bonus in pairs{["military-2"] = 4, ["military-3"] = 4, ["military-4"] = 8} do
+        local technology = player.force.technologies[name]
+        if technology and technology.researched then stats.attack_count = stats.attack_count + bonus end
+    end
     stats.attack_count = stats.attack_count + planets
     local pd = script_data.player_data[player.index]
     if pd then pd.stats = stats end
@@ -668,9 +673,19 @@ function Companion:try_to_shove_inventory()
     inventory.sort_and_merge()
     local total_inserted = 0
     local storage_chests
+    local reserved = {}
+    for key, task in pairs(self.crafted_tasks or {}) do
+        if tasks.pending(task, self.player.force) and task.entity.surface == self.entity.surface
+            and tasks.distance(task.entity.position, self.player.physical_position) <= settings.startup["companion-work-radius"].value then
+            if task.item then reserved[task.item.name .. ":" .. task.item.quality] = true end
+        else self.crafted_tasks[key] = nil end
+    end
+    for key, deadline in pairs(self.crafted_outputs or {}) do
+        if deadline > game.tick then reserved[key] = true else self.crafted_outputs[key] = nil end
+    end
     for k = 1, 20 do
         local stack = inventory[k]
-        if stack.valid_for_read then
+        if stack.valid_for_read and not reserved[stack.name .. ":" .. stack.quality.name] then
             if stack.name == "companion-construction-robot" then
                 stack.clear() -- Native returning workers are bookkeeping, never player cargo.
             else
@@ -867,7 +882,8 @@ function get_inventory(entity)
         return entity.get_inventory(defines.inventory.spider_trunk)
     elseif entity.type == "car" then
         return entity.get_inventory(defines.inventory.car_trunk)
-    elseif entity.type == "logistic-container" or entity.type == "container" then
+    elseif entity.type == "logistic-container" or entity.type == "container"
+        or entity.type == "infinity-container" or entity.type == "linked-container" then
         return entity.get_inventory(defines.inventory.chest)
     elseif entity.type == "cargo-wagon" then
         return entity.get_inventory(defines.inventory.cargo_wagon)
@@ -886,36 +902,61 @@ function Companion:supply_network()
 end
 
 function Companion:supply_chests()
-    local network = self:supply_network()
-    if not network then return {} end
+    local surface = self.player.physical_surface
+    if surface.platform or self.entity.surface ~= surface then return {} end
     local pd = script_data.player_data[self.player.index]
-    if pd.chest_network ~= network or game.tick >= (pd.next_chest_scan or 0) then
-        pd.chest_network, pd.next_chest_scan, pd.chests = network, game.tick + 60, {}
-        local inventories = {}
-        for _, chest in pairs(self.player.physical_surface.find_entities_filtered{
-            force = self.player.force, type = {"container", "logistic-container", "infinity-container", "linked-container"}}) do
-            local inventory = chest.get_inventory(defines.inventory.chest)
-            if inventory and not inventories[inventory]
-                and chest.surface.find_logistic_network_by_position(chest.position, chest.force) == network then
-                inventories[inventory] = true
-                pd.chests[#pd.chests + 1] = chest
+    if pd.chest_surface ~= surface or pd.chest_force ~= self.player.force or game.tick >= (pd.next_chest_scan or 0) then
+        pd.chest_surface, pd.chest_force, pd.next_chest_scan = surface, self.player.force, game.tick + 60
+        pd.chests = supply.chests(self.player)
+        local network = self:supply_network()
+        if network then
+            for _, chest in ipairs(surface.find_entities_filtered{force = self.player.force,
+                type = {"container", "logistic-container", "infinity-container", "linked-container"}}) do
+                if surface.find_logistic_network_by_position(chest.position, chest.force) == network then
+                    pd.chests[#pd.chests + 1] = chest
+                end
             end
         end
         table.sort(pd.chests, function(a, b) return a.unit_number < b.unit_number end)
     end
-    local chests = {}
+    local chests, inventories = {}, {}
     for _, chest in ipairs(pd.chests) do
-        if chest.valid and chest.force == self.player.force and not chest.to_be_deconstructed(self.player.force)
-            and chest.surface.find_logistic_network_by_position(chest.position, chest.force) == network then
-            chests[#chests + 1] = chest
+        if chest.valid and chest.force == self.player.force and not chest.to_be_deconstructed(self.player.force) then
+            local inventory = chest.get_inventory(defines.inventory.chest)
+            if inventory and not inventories[inventory] then
+                inventories[inventory] = true
+                chests[#chests + 1] = chest
+            end
         end
     end
     return chests
 end
 
+function Companion:nearby_inventories()
+    local companions, result = {}, {}
+    local radius = settings.startup["companion-work-radius"].value
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid and companion.entity.force == self.player.force then companions[#companions + 1] = companion end
+    end
+    table.sort(companions, function(a, b) return a.unit_number < b.unit_number end)
+    for _, companion in ipairs(companions) do
+        if companion.entity.surface == self.entity.surface and tasks.distance(companion.entity.position, self.player.physical_position) <= radius then
+            result[#result + 1] = companion:get_inventory()
+        end
+        for _, worker in ipairs(companion.crafters or {}) do
+            if worker.craft.produced and worker.entity.valid and worker.entity.surface == self.entity.surface
+                and tasks.distance(worker.entity.position, self.player.physical_position) <= radius then
+                result[#result + 1] = worker.inventory
+            end
+        end
+    end
+    return result
+end
+
 function Companion:available_items(item)
     local query = {name = item.name, quality = item.quality or "normal"}
-    local count = self:get_inventory().get_item_count(query)
+    local count = 0
+    for _, inventory in ipairs(self:nearby_inventories()) do count = count + inventory.get_item_count(query) end
     for _, chest in ipairs(self:supply_chests()) do count = count + chest.get_inventory(defines.inventory.chest).get_item_count(query) end
     if self:distance(self.player.physical_position) <= follow_range then
         local inventory = self.player.get_main_inventory()
@@ -935,22 +976,30 @@ function Companion:available_items(item)
     return count
 end
 
-function Companion:find_and_take_from_player(item)
-    for _, chest in ipairs(self:supply_chests()) do
-        if self:take_item(item, chest) then return true end
+function Companion:incoming_items()
+    local result = {}
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid and companion.entity.force == self.player.force then
+            for _, worker in ipairs(companion.crafters or {}) do
+                local craft = worker.craft
+                if not craft.finished and worker.entity.valid and worker.entity.surface == self.entity.surface
+                    and tasks.distance(worker.entity.position, self.player.physical_position) <= settings.startup["companion-work-radius"].value then
+                    for name, amount in pairs(craft.plan.outputs) do
+                        local spare = amount - (craft.item == name and (craft.count or 1) or 0)
+                        local key = name .. ":normal"
+                        result[key] = (result[key] or 0) + math.max(0, spare)
+                    end
+                end
+            end
+        end
     end
-    if self:distance(self.player.physical_position) > follow_range then return false end
-    if self:take_item(item, self.player) then return true end
-    local vehicle = self.player.vehicle
-    if not vehicle then return false end
-    if vehicle.train then return self:take_item_from_train(item, vehicle.train) end
-    return self:take_item(item, vehicle)
+    return result
 end
 
 local function transfer_item(item, source, destination)
     local remaining = item.count
     while remaining > 0 do
-        local stack = source.find_item_stack{name = item.name, quality = "normal"}
+        local stack = source.find_item_stack{name = item.name, quality = item.quality or "normal"}
         if not stack then break end
         local original = stack.count
         stack.count = math.min(original, remaining)
@@ -962,12 +1011,32 @@ local function transfer_item(item, source, destination)
     return item.count - remaining
 end
 
-function Companion:try_to_craft(item, keys, recipes)
+function Companion:find_and_take_from_player(item)
+    for _, inventory in ipairs(self:nearby_inventories()) do
+        if inventory ~= self:get_inventory() then
+            item.count = item.count - transfer_item(item, inventory, self:get_inventory())
+            if item.count == 0 then return true end
+        end
+    end
+    for _, chest in ipairs(self:supply_chests()) do
+        if self:take_item(item, chest) then return true end
+    end
+    if self:distance(self.player.physical_position) > follow_range then return false end
+    if self:take_item(item, self.player) then return true end
+    local vehicle = self.player.vehicle
+    if not vehicle then return false end
+    if vehicle.train then return self:take_item_from_train(item, vehicle.train) end
+    return self:take_item(item, vehicle)
+end
+
+
+function Companion:try_to_craft(item, keys, recipes, targets)
     self.crafters = self.crafters or {}
     local stats = script_data.player_data[self.player.index].stats or set_companion_stats(self.player)
     local capacity = crafting_capacity(self.player, stats.planet_upgrades)
     if #self.crafters >= capacity or item.quality ~= "normal" or not self.player.character then return false end
-    local available, sources = {}, {self:get_inventory()}
+    local available, sources = {}, {}
+    for _, inventory in ipairs(self:nearby_inventories()) do sources[#sources + 1] = inventory end
     for _, chest in ipairs(self:supply_chests()) do sources[#sources + 1] = chest.get_inventory(defines.inventory.chest) end
     sources[#sources + 1] = self.player.get_main_inventory()
     for _, inventory in ipairs(sources) do
@@ -975,8 +1044,16 @@ function Companion:try_to_craft(item, keys, recipes)
             if stack.quality == "normal" then available[stack.name] = (available[stack.name] or 0) + stack.count end
         end
     end
-    local plan = crafting.plan(crafting.recipes(self.player, item.name, recipes), available, item.name, item.count)
+    local stock = {}
+    for name, count in pairs(available) do stock[name] = count end
+    for key, count in pairs(self:incoming_items()) do
+        local name = key:match("^(.*):normal$")
+        stock[name] = (stock[name] or 0) + count
+    end
+    local plan = crafting.plan(crafting.recipes(self.player, item.name, recipes), stock, item.name, item.count)
     if not plan then return false end
+    -- Wait for promised intermediates instead of making the same surplus in another worker.
+    for name, count in pairs(plan.ingredients) do if count > (available[name] or 0) then return false end end
     local function slots(items)
         local count = 0
         for name, amount in pairs(items) do count = count + math.ceil(amount / prototypes.item[name].stack_size) end
@@ -1012,7 +1089,7 @@ function Companion:try_to_craft(item, keys, recipes)
     worker.slot = 1
     while slots[worker.slot] do worker.slot = worker.slot + 1 end
     worker.craft = {inventory = inventory, plan = plan, remaining = math.ceil(plan.energy * 60),
-        last_tick = game.tick, item = item.name, task_keys = keys, count = item.count}
+        last_tick = game.tick, item = item.name, task_keys = keys, count = item.count, targets = targets}
     self.crafters[#self.crafters + 1] = worker
     self:return_to_player()
     self:set_status({"companion-status.crafting", prototypes.item[item.name].localised_name})
@@ -1169,6 +1246,10 @@ function Companion:try_to_find_work()
     self.deferred = self.deferred or {}
     local seen = {}
     local eligible, missing, craftable, supplies = {}, nil, {}, {}
+    local incoming, claims = self:incoming_items(), {}
+    for _, companion in pairs(script_data.companions) do
+        if companion.entity.valid and companion.entity.force == self.player.force then workers.claims(companion, claims) end
+    end
     local function available(item)
         local key = item.name .. ":" .. item.quality
         if supplies[key] == nil then supplies[key] = self:available_items(item) end
@@ -1177,11 +1258,7 @@ function Companion:try_to_find_work()
     for _, task in ipairs(candidates) do
         seen[task.key] = self.seen[task.key] or game.tick
         task.age = math.min(30, (game.tick - seen[task.key]) / 60)
-        local claimed = false
-        for _, companion in pairs(script_data.companions) do
-            if workers.claimed(companion, task.key) then claimed = true; break end
-        end
-        if not claimed and game.tick >= (self.deferred[task.key] or 0) then
+        if not claims[task.key] and game.tick >= (self.deferred[task.key] or 0) then
             for _, item in ipairs(task.alternatives or {}) do
                 if available(item) >= item.count then task.item = item; break end
             end
@@ -1190,7 +1267,11 @@ function Companion:try_to_find_work()
                 eligible[#eligible + 1] = task
             else
                 missing = missing or task.item
-                if task.kind == "build" or task.kind == "upgrade" then craftable[#craftable + 1] = task end
+                if task.kind == "build" or task.kind == "upgrade" then
+                    local key = task.item.name .. ":" .. task.item.quality
+                    if (incoming[key] or 0) >= task.item.count then incoming[key] = incoming[key] - task.item.count
+                    else craftable[#craftable + 1] = task end
+                end
             end
         end
     end
@@ -1246,25 +1327,36 @@ function Companion:try_to_find_work()
         if #(self.crafters or {}) >= capacity then break end
         -- A failed single-item plan also rules out every larger batch of that item.
         if not assigned[task.key] and not failed_crafts[task.item.name .. ":" .. task.item.quality .. ":1"] then
-            local batch, count = {task}, task.item.count
-            for _, other in ipairs(craftable) do
-                if other ~= task and not assigned[other.key] and other.priority == task.priority
-                    and other.item.name == task.item.name and other.item.quality == task.item.quality
-                    and count + other.item.count <= 8 and tasks.distance(other.entity.position, task.entity.position) <= 8 then
-                    batch[#batch + 1], count = other, count + other.item.count
+            local incoming_key = task.item.name .. ":" .. task.item.quality
+            if (incoming[incoming_key] or 0) >= task.item.count then
+                incoming[incoming_key] = incoming[incoming_key] - task.item.count
+                assigned[task.key] = true
+            else
+                local batch, count = {task}, task.item.count
+                for _, other in ipairs(craftable) do
+                    if other ~= task and not assigned[other.key] and other.priority == task.priority
+                        and other.item.name == task.item.name and other.item.quality == task.item.quality
+                        and count + other.item.count <= 8 and tasks.distance(other.entity.position, task.entity.position) <= 8 then
+                        batch[#batch + 1], count = other, count + other.item.count
+                    end
                 end
-            end
-            while #batch > 0 do
-                local keys = {}
-                for _, target in ipairs(batch) do keys[target.key] = true end
-                local attempt = task.item.name .. ":" .. task.item.quality .. ":" .. count
-                if not failed_crafts[attempt] and self:try_to_craft({name = task.item.name, quality = task.item.quality, count = count}, keys, recipes) then
-                    for key in pairs(keys) do assigned[key] = true end
-                    break
+                while #batch > 0 do
+                    local keys = {}
+                    for _, target in ipairs(batch) do keys[target.key] = true end
+                    local attempt = task.item.name .. ":" .. task.item.quality .. ":" .. count
+                    if not failed_crafts[attempt] and self:try_to_craft({name = task.item.name, quality = task.item.quality, count = count}, keys, recipes, batch) then
+                        for key in pairs(keys) do assigned[key] = true end
+                        local craft = self.crafters[#self.crafters].craft
+                        for name, amount in pairs(craft.plan.outputs) do
+                            local key = name .. ":normal"
+                            incoming[key] = (incoming[key] or 0) + math.max(0, amount - (name == craft.item and count or 0))
+                        end
+                        break
+                    end
+                    failed_crafts[attempt] = true
+                    count = count - batch[#batch].item.count
+                    batch[#batch] = nil
                 end
-                failed_crafts[attempt] = true
-                count = count - batch[#batch].item.count
-                batch[#batch] = nil
             end
         end
     end
@@ -1361,7 +1453,7 @@ local function update_combat_robots()
                         local heading = math.atan2(dx, -dy) / (2 * math.pi) % 1
                         local turn = (heading - robot.orientation + 0.5) % 1 - 0.5
                         robot.orientation = (robot.orientation + math.max(-0.02, math.min(0.02, turn * 0.25))) % 1
-                        local step = math.min(1, math.min(0.12, 0.16 / distance)
+                        local step = math.min(1, math.min(0.06, 0.06 / distance)
                             * settings.global["companion-mini-drone-speed"].value)
                         robot.teleport({pos.x + dx * step, pos.y + dy * step})
                     end

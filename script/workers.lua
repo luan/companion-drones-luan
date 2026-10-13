@@ -10,22 +10,36 @@ function workers.spawn(companion, name, inventory)
     return {entity = entity, player = companion.player, inventory = inventory, worker = true}
 end
 
-function workers.claimed(companion, key)
-    if companion.craft and ((companion.craft.task_keys or {})[key] or companion.craft.task_key == key) then return true end
+function workers.claims(companion, result)
+    local function craft_keys(craft)
+        for key in pairs(craft.task_keys or {}) do result[key] = true end
+        if craft.task_key then result[craft.task_key] = true end
+    end
+    if companion.craft then craft_keys(companion.craft) end
     for _, worker in ipairs(companion.crafters or {}) do
-        if (worker.craft.task_keys or {})[key] or worker.craft.task_key == key then return true end
+        if not worker.craft.produced then craft_keys(worker.craft) end
     end
     for _, worker in ipairs(companion.managers or {}) do
-        if worker.task and worker.task.key == key then return true end
-        for _, task in ipairs(worker.tasks or {}) do if task.key == key then return true end end
+        if worker.task then result[worker.task.key] = true end
+        for _, task in ipairs(worker.tasks or {}) do result[task.key] = true end
     end
     if companion.job then
-        for _, task in ipairs(companion.job.tasks) do if task.key == key then return true end end
+        for _, task in ipairs(companion.job.tasks) do result[task.key] = true end
     end
-    return false
 end
 
-function workers.return_inventory(companion, inventory)
+function workers.return_inventory(companion, inventory, targets, outputs)
+    if targets then
+        companion.crafted_tasks = companion.crafted_tasks or {}
+        for _, task in ipairs(targets) do companion.crafted_tasks[task.key] = task end
+    end
+    -- Leave surplus available for a nearby crew search before returning it to the owner.
+    if outputs then
+        companion.crafted_outputs = companion.crafted_outputs or {}
+        for name in pairs(outputs) do
+            companion.crafted_outputs[name .. ":normal"] = game.tick + math.max(120, storage.companion_update_interval * 2)
+        end
+    end
     -- transfer_from_stack preserves durability, quality and item metadata.
     for i = 1, #inventory do
         local stack = inventory[i]
@@ -85,37 +99,53 @@ function workers.update_crafters(companion, speed)
                 y = owner.y + math.sin(angle) * radius}, surface = companion.player.physical_surface}
         end
         local landing = worker.landing
-        local away = landing.surface ~= companion.player.physical_surface
-            or tasks.distance(landing.position, owner) > 48
-        if away then worker.away_since = worker.away_since or game.tick else worker.away_since = nil end
-        if worker.away_since and game.tick - worker.away_since >= 120 then
-            craft.finished = true -- Recall refunds the untouched ingredient reservation.
-        end
         if not craft.finished then
-            if not worker.landed then worker.landed = move(worker, landing.position, landing.surface, 0.6) end
-            if worker.landed and worker.visuals and worker.visuals.altitude <= 0.3 and not away then
+            if not worker.landed then worker.landed = move(worker, landing.position, landing.surface, 0.10) end
+            if worker.landed and worker.visuals and worker.visuals.altitude <= 0.3 then
                 craft.remaining = math.max(0, craft.remaining - (game.tick - craft.last_tick) * speed)
             end
         end
         craft.last_tick = game.tick
         if craft.remaining == 0 and not craft.finished then
-            local valid = true
-            for _, name in ipairs(craft.plan.steps) do
+            local plan = craft.plan
+            if craft.targets then
+                local needed = 0
+                for _, task in ipairs(craft.targets) do
+                    if tasks.pending(task, companion.player.force) then needed = needed + task.item.count end
+                end
+                if needed < craft.count then
+                    local available = {}
+                    for _, stack in ipairs(craft.inventory.get_contents()) do available[stack.name] = stack.count end
+                    plan = needed > 0 and crafting.plan(crafting.recipes(companion.player, craft.item), available, craft.item, needed) or nil
+                    if plan then
+                        craft.count = needed
+                        local slots = 0
+                        for name, count in pairs(plan.outputs) do slots = slots + math.ceil(count / prototypes.item[name].stack_size) end
+                        craft.inventory.resize(#craft.inventory + slots)
+                    end
+                end
+            end
+            local valid = plan ~= nil
+            for _, name in ipairs(plan and plan.steps or {}) do
                 if not crafting.recipe(companion.player, name) then valid = false; break end
             end
             if valid then
-                craft.inventory.clear()
-                for name, count in pairs(craft.plan.outputs) do
+                for name, count in pairs(plan.ingredients) do
+                    if count > 0 then assert(craft.inventory.remove{name = name, count = count} == count) end
+                end
+                for name, count in pairs(plan.outputs) do
                     assert(craft.inventory.insert{name = name, count = count} == count)
                 end
+                craft.plan = plan
+                craft.produced = true
             end
             craft.finished = true -- Ineligible recipes return their original ingredients.
         end
         if craft.finished then
             -- Retract the feet and lift off before moving; keep delivered cargo safe throughout.
             if (not worker.visuals or worker.visuals.altitude >= 1.95)
-                and move(worker, companion.entity.position, companion.entity.surface, 0.6)
-                and workers.return_inventory(companion, worker.inventory) then
+                and move(worker, companion.entity.position, companion.entity.surface, 0.10)
+                and workers.return_inventory(companion, worker.inventory, craft.produced and craft.targets, craft.produced and craft.plan.outputs) then
                 remove(worker)
                 table.remove(companion.crafters, index)
                 companion.next_search_tick = game.tick
@@ -238,8 +268,7 @@ function workers.update_managers(companion)
         worker.tasks = worker.tasks or {}
         local task = worker.tasks[1]
         local owner = companion.player.physical_position
-        if not companion:player_wants_construction() or not companion.can_construct
-            or game.tick - (worker.started or game.tick) >= 120 then
+        if not companion:player_wants_construction() or not companion.can_construct then
             worker.tasks = {}
             task = nil
         end
@@ -253,7 +282,7 @@ function workers.update_managers(companion)
             local position = task.entity.position
             local distance = tasks.distance(worker.entity.position, position)
             if distance > 12 then
-                move(worker, position, task.entity.surface, math.min(2, distance - 10))
+                move(worker, position, task.entity.surface, math.min(0.12, distance - 10))
             else
                 worker.task = task
                 local success = perform(worker)
@@ -265,7 +294,7 @@ function workers.update_managers(companion)
                 else companion.deferred[task.key] = game.tick + 120 end
                 table.remove(worker.tasks, 1)
             end
-        elseif #worker.tasks == 0 and move(worker, companion.entity.position, companion.entity.surface, 2) then
+        elseif #worker.tasks == 0 and move(worker, companion.entity.position, companion.entity.surface, 0.12) then
             if workers.return_inventory(companion, worker.inventory) then
                 remove(worker)
                 table.remove(companion.managers, index)

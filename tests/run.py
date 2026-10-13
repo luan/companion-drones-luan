@@ -15,6 +15,7 @@ parser.add_argument("--playground", action="store_true", help="Open the manual S
 parser.add_argument("--tile-stress", action="store_true")
 parser.add_argument("--repair-stress", action="store_true")
 parser.add_argument("--upgrade-stress", action="store_true")
+parser.add_argument("--crew-stress", action="store_true")
 parser.add_argument("--start-planet", choices=["vulcanus", "gleba", "fulgora", "companion-test-planet"])
 parser.add_argument("--aps-mod", type=Path, help="Any Planet Start release ZIP")
 args = parser.parse_args()
@@ -40,10 +41,13 @@ def run(mode):
         "author": "Luan", "factorio_version": "2.1", "dependencies": [info["name"], "? space-age"] + (["any-planet-start"] if args.start_planet else []),
     }))
     (harness / "data.lua").write_bytes((root / "tests/data.lua").read_bytes())
+    if args.crew_stress:
+        with (harness / "data.lua").open("a") as data:
+            data.write('\ndata.raw.recipe["transport-belt"].energy_required = 4\ndata.raw.recipe["iron-gear-wheel"].energy_required = 4\n')
     (harness / "settings-updates.lua").write_text(
         'data.raw["int-setting"]["set-mode"].default_value = ' + str(mode)
         + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = ' + str(4 if mode == 1 else 2)
-        + '\ndata.raw["double-setting"]["companion-mini-drone-speed"].default_value = ' + str(1 if mode == 1 else 0.5))
+        + '\ndata.raw["double-setting"]["companion-mini-drone-speed"].default_value = ' + str(0.5 if args.crew_stress else 2))
     if args.start_planet:
         (harness / "aps-planet.lua").write_text("")
         (harness / "control.lua").write_bytes((root / "tests/planet-start.lua").read_bytes())
@@ -54,10 +58,10 @@ def run(mode):
     if args.start_planet:
         (scenario / "control.lua").write_text('require("__base__/script/freeplay/control.lua")\n')
     else:
-        (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/tile-stress.lua" if args.tile_stress else "tests/repair-stress.lua" if args.repair_stress else "tests/upgrade-stress.lua" if args.upgrade_stress else "tests/control.lua")).read_bytes())
+        (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/tile-stress.lua" if args.tile_stress else "tests/repair-stress.lua" if args.repair_stress else "tests/upgrade-stress.lua" if args.upgrade_stress else "tests/crew-stress.lua" if args.crew_stress else "tests/control.lua")).read_bytes())
     (mods / "mod-list.json").write_text(json.dumps({"mods": [
         {"name": name, "enabled": True} for name in ["base", info["name"]] + (["any-planet-start"] if args.start_planet else []) + ([] if args.playground else [harness.name])
-    ] + [{"name": name, "enabled": args.space_age} for name in ["space-age", "elevated-rails", "quality"]]}))
+    ] + [{"name": name, "enabled": args.space_age} for name in ["space-age", "elevated-rails", "quality", "recycler"]]}))
     config = qa / "config.ini"
     config.write_text("[path]\nread-data=__PATH__system-read-data__\nwrite-data=" + str(qa)
                       + "\n[other]\ncheck-updates=false\npause-when-focus-lost=false\nautosave-interval=0\nenable-blueprint-storage-cloud-sync=false\n"

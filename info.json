@@ -1,10 +1,10 @@
 {
   "name": "companion-drones-luan",
-  "version": "4.0.6",
+  "version": "4.1.0",
   "title": "Entourage",
   "author": "Luan (fork), Gadgetroch, Maoman, MrJakobLaich, kubiix, Klonan",
   "homepage": "https://github.com/luan/companion-drones-luan",
-  "description": "Every player gets a companion that builds, repairs, deconstructs and defends them. It deploys task managers, crafters and combat drones, uses player and logistics chest materials, and follows between planets. Research adds drones and improves crafting. No fuel or charging.",
+  "description": "Every player gets a companion that builds, repairs, deconstructs and defends them. It deploys task managers, crafters and combat drones, shares work and materials across crews, draws from player, electrical and logistics chest supplies, and follows between planets. Research adds drones and improves crafting. No fuel or charging.",
   "dependencies": [
     "base >= 2.1.0",
     "! companion-drones-gadgetroch",

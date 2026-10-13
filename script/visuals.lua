@@ -87,6 +87,13 @@ local function effects(entity, craft)
     objects[5] = rendering.draw_text{surface = entity.surface, target = entity.position,
         text = "×" .. (craft.count or 1), color = {1, 1, 1}, scale = 1.1,
         alignment = "center", use_rich_text = false, render_layer = "arrow"}
+    for _, step in ipairs(craft.plan.queue or {}) do
+        objects[#objects + 1] = rendering.draw_sprite{surface = entity.surface, target = entity.position,
+            sprite = "item/" .. step.item, x_scale = 0.55, y_scale = 0.55, render_layer = "arrow"}
+        objects[#objects + 1] = rendering.draw_text{surface = entity.surface, target = entity.position,
+            text = "×" .. step.count, color = {1, 1, 1}, scale = 0.75,
+            alignment = "center", use_rich_text = false, render_layer = "arrow"}
+    end
     return objects
 end
 
@@ -95,7 +102,7 @@ function visuals.update(companion, color)
     color = color or entity.color or companion.player.color
     local utility = entity.name == "companion-task-manager" or entity.name == "companion-crafter"
     local model = utility and "companion-manager" or "companion-animation-1"
-    local revision = 3
+    local revision = 4
     local state = companion.visuals
     if state and (state.revision ~= revision or state.model ~= model or state.surface ~= entity.surface or not state.body[1].valid or not state.body[7] or not state.body[8]) then
         visuals.clear(companion)
@@ -118,9 +125,8 @@ function visuals.update(companion, color)
     local destination = landed and 0.25 or 2
     state.altitude = state.altitude + math.max(-0.08, math.min(0.08, destination - state.altitude))
     local pos = entity.position
-    if companion.worker then
-        for _, object in ipairs(state.body) do object.x_scale = 0.55; object.y_scale = 0.55 end
-    end
+    local scale = companion.worker and 0.55 or 0.5
+    for _, object in ipairs(state.body) do object.x_scale = scale; object.y_scale = scale end
     -- Crafters retain a fixed tool-facing pose so their articulated landing feet align.
     local facing = companion.worker and craft and 0.5 or companion.facing or state.heading or entity.orientation
     if not companion.worker then
@@ -151,7 +157,6 @@ function visuals.update(companion, color)
     local displayed_heading = math.floor(state.orientation * 128 + 0.5) % 128 / 128
     local angle = math.pi - displayed_heading * math.pi * 2
     local cos, sin = math.cos(angle), math.sin(angle)
-    local scale = companion.worker and 0.55 or 1
     local rotor_height = utility and 0.21375 or 0.285
     for index, pod in ipairs(pods) do
         local x, y = pod[1] * cos - pod[2] * sin, pod[1] * sin + pod[2] * cos
@@ -175,22 +180,43 @@ function visuals.update(companion, color)
         state.item = nil
         return
     end
-    if state.item ~= craft.item or not state.effects or not state.effects[5] then
+    if state.item ~= craft.item or state.plan ~= craft.plan or not state.effects or not state.effects[5] then
         destroy(state.effects)
         state.effects = effects(entity, craft)
         state.item = craft.item
+        state.plan = craft.plan
     end
     local objects = state.effects
     local pulse = 0.75 + 0.25 * math.sin(game.tick * math.pi / 45)
     objects[1].target = torso
     objects[1].color = {0.02 * pulse, 0.08 * pulse, 0.09 * pulse, 0.1 * pulse}
     objects[1].visible = not not landed
-    local head = {pos.x, pos.y - state.altitude - 1.6}
+    local head = {pos.x, pos.y - state.altitude - 1.2}
     objects[5].target = {head[1] + 0.65, head[2] + 0.15}
     objects[2].target = head
     objects[2].color = landed and {1, 1, 1} or {0.5, 0.5, 0.5}
     local start = {head[1] - 0.6, head[2] + 0.65}
     local progress = math.max(0, math.min(1, 1 - craft.remaining / math.max(1, craft.plan.energy * 60)))
+    local elapsed, active = math.max(0, craft.plan.energy * 60 - craft.remaining), nil
+    for index, step in ipairs(craft.plan.queue or {}) do
+        local duration = step.energy * 60
+        if not active and elapsed < duration then
+            active = index
+            progress = elapsed / math.max(1, duration)
+            objects[2].sprite = "item/" .. step.item
+            objects[5].text = "×" .. step.count
+        end
+        elapsed = elapsed - duration
+        local icon, count = objects[4 + index * 2], objects[5 + index * 2]
+        local pending = not craft.finished and active and index > active
+        icon.visible, count.visible = not not pending, not not pending
+        if pending then
+            local slot = index - active - 1
+            local position = {head[1] + (slot % 6 - 2.5) * 0.7, head[2] - 0.8 - math.floor(slot / 6) * 0.8}
+            icon.target = position
+            count.target = {position[1] + 0.22, position[2] + 0.20}
+        end
+    end
     objects[3].from, objects[3].to = start, {head[1] + 0.6, start[2]}
     objects[4].from, objects[4].to = start, {start[1] + 1.2 * progress, start[2]}
 end

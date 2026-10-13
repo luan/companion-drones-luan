@@ -41,12 +41,15 @@ local function panel(player)
         {"mixed", "Mixed workload: 180+ tasks"}, {"starve", "Empty raw supplies"}, {"clear", "Clear workload"},
         {"radius", "Show / hide work radius"},
         {"build", "Build + impossible task"}, {"craft", "Autocraft from chests"}, {"attack", "Spawn 4 small biters"},
+        {"queue", "Recursive crafting queue"}, {"electric", "Use electrical chests only"}, {"military", "Research military and lasers"},
         {"repair", "Repair + deconstruct"}, {"salvage", "Remove full chest: 4,800 items"}, {"overflow", "Full inventory + storage salvage"}, {"leash", "Move 50 tiles away"}, {"home", "Return to test area"},
         {"speed", "Research crafting speed +1"}, {"planets", "Research next 2 planets"},
         {"promethium", "Research extra drone +1"}, {"vulcanus", "Travel to Vulcanus"},
         {"platform", "Travel to platform"}, {"refill", "Refill test supplies"},
     }
-    for _, action in ipairs(actions) do frame.add{type = "button", name = "playground_" .. action[1], caption = action[2]} end
+    local controls = frame.add{type = "scroll-pane", direction = "vertical", horizontal_scroll_policy = "never"}
+    controls.style.maximal_height = 500
+    for _, action in ipairs(actions) do controls.add{type = "button", name = "playground_" .. action[1], caption = action[2]} end
 end
 
 local function refill(player)
@@ -176,6 +179,24 @@ script.on_event(defines.events.on_gui_click, function(event)
             radius = settings.startup["companion-work-radius"].value, filled = false, width = 2, color = {0.1, 0.8, 1, 0.6}} end
     elseif name == "playground_build" then build_test(player, false)
     elseif name == "playground_craft" then build_test(player, true)
+    elseif name == "playground_queue" then
+        for i = 1, 6 do ghost(player, "assembling-machine-2", pos.x + i * 3 - 10, pos.y + 6) end
+    elseif name == "playground_electric" then
+        if storage.port and storage.port.valid then storage.port.destroy() end
+        if storage.raw_chest and storage.raw_chest.valid then storage.raw_chest.destroy() end
+        storage.raw_chest = player.physical_surface.create_entity{name = "steel-chest", position = {32, 14}, force = player.force}
+        for _, x in ipairs{0, 16, 32} do
+            if not player.physical_surface.find_entity("substation", {x, 8}) then
+                player.physical_surface.create_entity{name = "substation", position = {x, 8}, force = player.force}
+            end
+        end
+        for _, item in ipairs{"iron-plate", "copper-plate", "stone", "steel-plate"} do storage.raw_chest.insert{name = item, count = 500} end
+    elseif name == "playground_military" then
+        for name, technology in pairs(player.force.technologies) do
+            if name:match("^military%-[234]$") or name:match("^laser%-weapons%-damage%-") or name:match("^laser%-shooting%-speed%-") then
+                technology.researched = true
+            end
+        end
     elseif name == "playground_attack" then
         for i = 1, 4 do player.physical_surface.create_entity{name = "small-biter", position = {pos.x + 12 + i, pos.y - 9}, force = "enemy"} end
     elseif name == "playground_repair" then

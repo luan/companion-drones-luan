@@ -56,6 +56,7 @@ remote.add_interface("entourage_multiplayer_qa", {
 			player.zoom = 1.2
 			player.clear_console()
 		end
+		storage.players[1].force.technologies.electronics.researched = true
 		game.speed = 4
 		begin("ownership")
 	end,
@@ -89,7 +90,7 @@ remote.add_interface("entourage_multiplayer_qa", {
 		end
 		check(
 			game.surfaces[1].count_entities_filtered({ name = "companion" }),
-			4,
+			script.active_mods["space-age"] and 4 or 2,
 			"server reload does not duplicate researched fleets"
 		)
 		pass("server save, reload and reconnect retain both fleets")
@@ -126,30 +127,43 @@ script.on_event(defines.events.on_tick, function()
 		end
 		assert(storage.drones[1] and storage.drones[2], "distinct owner colors")
 		pass("separate owners, colors and starter companions")
-		storage.roboport = assert(surface.create_entity({ name = "roboport", position = { 0, 12 }, force = a.force }))
-		storage.roboport.energy = storage.roboport.electric_buffer_size
+		for _, x in ipairs{0, 16, 32} do
+            assert(surface.create_entity{name = "substation", position = {x, 10}, force = a.force})
+        end
 		storage.provider =
-			assert(surface.create_entity({ name = "passive-provider-chest", position = { 0, 8 }, force = a.force }))
+			assert(surface.create_entity({ name = "steel-chest", position = { 32, 8 }, force = a.force }))
 		storage.provider.insert({ name = "stone", count = 20 })
-		storage.provider.insert({ name = "transport-belt", count = 6 })
-		storage.provider.insert({ name = "iron-plate", count = 3 })
+
+		storage.provider.insert({ name = "iron-plate", count = 30 })
+		storage.provider.insert({ name = "copper-plate", count = 4 })
 		storage.targets = {}
 		for i = 1, 4 do
 			ghost(a, "stone-furnace", { i * 2 - 5, -6 })
 		end
 		for i = 1, 6 do
-			ghost(a, "transport-belt", { i - 3, -2 })
+			ghost(a, "transport-belt", { i * 10 - 30, -2 })
 		end
+		ghost(a, "inserter", {-18, -6})
+		ghost(a, "inserter", {18, -6})
 		begin("shared-network")
-	elseif storage.phase == "shared-network" and elapsed >= 900 then
+	elseif storage.phase == "shared-network" and elapsed == 30 then
+		a.teleport({100, 0}, surface)
+	elseif storage.phase == "shared-network" and elapsed >= 1200 then
 		check_all_built()
 		check(storage.provider.get_item_count("stone"), 0, "shared crafting uses exact ingredients")
 		check(storage.provider.get_item_count("transport-belt"), 0, "shared building uses exact materials")
-		check(storage.provider.get_item_count("iron-plate"), 3, "unrelated shared chest contents untouched")
+		check(storage.provider.get_item_count("iron-plate"), 13, "belts and inserters consume exactly seventeen plates across both crews")
+		check(storage.provider.get_item_count("copper-plate"), 1, "inserter crafts share intermediate cable surplus across crews")
 		for _, player in ipairs(storage.players) do
 			check(player.crafting_queue_size, 0, "no player handcrafting")
 		end
-		pass("two owners share tasks and logistics materials without duplicate consumption")
+		pass("two owners share electrical chest materials and recipe surplus while one owner walks away")
+		a.teleport({-6, 0}, surface)
+		begin("shared-returns")
+	elseif storage.phase == "shared-returns" then
+		assert(elapsed < 3000, "finished workers return after their owner comes back")
+		if surface.count_entities_filtered{name = {"companion-crafter", "companion-task-manager"}} ~= 0 then return end
+		pass("both crews deliver cargo and finished workers disappear")
 		a.set_shortcut_toggled("companion-construction-toggle", false)
 		b.set_shortcut_toggled("companion-construction-toggle", false)
 		a.insert({ name = "transport-belt", count = 10 })
@@ -237,6 +251,11 @@ script.on_event(defines.events.on_tick, function()
 		begin("research")
 	elseif storage.phase == "research" and elapsed >= 1 then
 		a.force.technologies["companion-crafting-speed-1"].level = 2
+		if not script.active_mods["space-age"] then
+			log("ENTOURAGE MULTIPLAYER INTEGRATION PASS")
+			begin("complete")
+			return
+		end
 		a.force.technologies["companion-planet-vulcanus"].researched = true
 		a.force.technologies["companion-planet-fulgora"].researched = true
 		begin("fleet")

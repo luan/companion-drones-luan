@@ -22,4 +22,8 @@ local cyclic = {
 }
 assert(not crafting.plan(cyclic, {}, "a", 1), "cyclic recipes terminate")
 assert(crafting.plan(cyclic, {ore = 1}, "a", 1).ingredients.ore == 1, "a failed alternative does not consume stock")
+local queued = assert(crafting.plan(recipes, {copper = 3, iron = 2}, "circuit", 2))
+assert(#queued.queue == 2 and queued.queue[1].item == "cable" and queued.queue[1].count == 6)
+assert(queued.queue[2].item == "circuit" and queued.queue[2].count == 2, "queue records intermediate runs before final recipe")
+assert(queued.queue[1].energy + queued.queue[2].energy == queued.energy, "queue duration matches reserved work")
 print("COMPANION crafting planner PASS")

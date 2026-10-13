@@ -9,12 +9,14 @@ Every player receives one companion automatically. It stays close, travels with 
 ## Drones
 
 - **Six task managers per companion.** Each manager receives up to 32 nearby tasks and exactly the materials those tasks need. Managers build, upgrade, repair and deconstruct with cyan beams. They return leftovers and salvage before disappearing; full return inventories keep cargo safe in the manager until space becomes available.
-- **Six crafters per companion to start.** Independent crafters reserve ingredients, land, and show the item, batch count and progress overhead. They stay at their landing positions while the owner moves. Nearby matching ghosts share batches of up to eight items, including intermediate recipes. The player's handcrafting queue is never used.
-- **Custom combat escorts.** A companion launches a squad of up to four small drones from the companion. They use red combat lasers and defend the owner while the crew keeps working. Squad power follows companion upgrades without adding more escorts.
+- **Six crafters per companion to start.** Independent crafters reserve ingredients, land, and show the active recipe, upcoming recipe queue, counts and progress overhead. They stay at their landing positions while the owner moves. Nearby matching ghosts share batches of up to eight items, including intermediate recipes. The player's handcrafting queue is never used.
+- **Custom combat escorts.** A companion launches a squad of up to four small drones from the companion. They use red combat lasers and defend the owner while the crew keeps working. Military 2, 3 and 4 strengthen the squad. Laser damage and firing-speed research continue to increase its power without adding more escorts.
 
-The crew checks for nearby enemies first, skips work without materials or placement space, and favors urgent repairs and recent player actions. Materials come from companion cargo, any chest covered by the owner's current logistics network, the player, or their vehicle. Exact reservations prevent taking an entire stack for one task. Chests marked for removal are excluded from supply and storage.
+The crew checks for nearby enemies first, skips work without materials or placement space, and favors urgent repairs and recent player actions. Nearby crews share task reservations, incoming recipe surplus and companion cargo. Materials come from any chest covered by poles in the owner's nearest connected electrical network, their logistics network, the player, or their vehicle. Exact reservations prevent taking an entire stack for one task. Chests marked for removal are excluded from supply and storage.
 
-The work radius defaults to **48 tiles**, configurable from 12 to 96. The main companion normally stays within 12 tiles and recalls within two seconds, or immediately beyond 24. Managers operate on short two-second assignments. Crafters remain planted within 48 tiles; moving farther away or changing planets recalls them after two seconds and refunds their reserved ingredients. Cargo is preserved when return inventories are full.
+The work radius defaults to **48 tiles**, configurable from 12 to 96. The main companion normally stays within 12 tiles and recalls within two seconds, or immediately beyond 24. Managers keep their assignments while targets remain within the work radius. Landed crafters finish their reserved queue when the owner walks away, then return with the output. Cargo is preserved when return inventories are full.
+
+![Floating intermediate crafting queue](https://raw.githubusercontent.com/luan/companion-drones-luan/main/docs/screenshots/crafting-queue-4.1.0.png)
 
 ![Parallel crafting and combat in multiplayer](https://raw.githubusercontent.com/luan/companion-drones-luan/main/docs/screenshots/crafting-and-combat.png)
 
@@ -24,7 +26,7 @@ The work radius defaults to **48 tiles**, configurable from 12 to 96. The main c
 
 Each non-Nauvis planet, including modded planets, receives an expensive companion development technology: 2,000 research units at 60 seconds each. It keeps the discovery research ingredients and adds planet and core science packs when a lab accepts the combination. Each completed planet improves movement, equipment and crafting, and adds one parallel crafter. Every **two planets grant another permanent companion**. Infinite promethium research grants additional companions.
 
-Mini drone movement defaults to half speed. Change **Mini drone movement speed** in runtime mod settings (0.1 to 2×); it applies immediately to escorts, managers and flying crafters without slowing crafting or task execution.
+The main companion is half its previous size. Mini drones use lower base flight speeds with the existing half-speed default. Change **Mini drone movement speed** in runtime mod settings (0.1 to 2×); it applies immediately to escorts, managers and flying crafters without slowing crafting or task execution.
 
 Crafting starts at **2× recipe speed**, configurable. Infinite crafting research adds 50% of the configured starting speed and one crafter per completed level; planet development adds 25% of starting speed. Bonuses apply to work already in progress.
 

@@ -2,7 +2,7 @@ local crafting = {}
 
 -- Plan only deterministic item recipes. Fluid or probabilistic recipes need machine crafting.
 function crafting.plan(recipes, available, name, count)
-    local stock, used, visiting, duration, steps = {}, {}, {}, 0, {}
+    local stock, used, visiting, duration, steps, queue = {}, {}, {}, 0, {}, {}
     for item, amount in pairs(available) do stock[item] = amount end
     local function need(item, amount, intermediate)
         local take = math.min(stock[item] or 0, amount)
@@ -26,11 +26,14 @@ function crafting.plan(recipes, available, name, count)
                     stock[item] = (stock[item] or 0) + runs * recipe.amount - amount
                     duration = duration + (recipe.energy or 0) * runs
                     steps[#steps + 1] = recipe.name
+                    queue[#queue + 1] = {recipe = recipe.name, item = item, count = runs * recipe.amount,
+                        energy = (recipe.energy or 0) * runs}
                     visiting[item] = nil
                     return true, recipe.name, runs
                 end
                 stock, used, duration = before_stock, before_used, before_duration
                 while #steps > before_steps do steps[#steps] = nil end
+                while #queue > before_steps do queue[#queue] = nil end
             end
         end
         visiting[item] = nil
@@ -43,7 +46,7 @@ function crafting.plan(recipes, available, name, count)
             local surplus = amount - ((available[item] or 0) - (used[item] or 0))
             if surplus > 0 then outputs[item] = (outputs[item] or 0) + surplus end
         end
-        return {recipe = recipe, count = runs, ingredients = used, outputs = outputs, energy = duration, steps = steps}
+        return {recipe = recipe, count = runs, ingredients = used, outputs = outputs, energy = duration, steps = steps, queue = queue}
     end
 end
 

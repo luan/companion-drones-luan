@@ -196,7 +196,7 @@ inserter_beam.damage_interval = 9999999
 inserter_beam.action_triggered_automatically = false
 inserter_beam.action = nil
 
-local scale = 0.6
+local scale = 0.3
 local leg_scale = 1
 local arguments = {name = "spidertron"}
 local drone =

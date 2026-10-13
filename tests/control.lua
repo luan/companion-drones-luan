@@ -69,23 +69,23 @@ script.on_event(defines.events.on_tick, function(event)
     end
     local elapsed = event.tick - storage.started
     local drone = storage.companion
-    if elapsed > 1140 and elapsed < 1200 then
+    if elapsed > 1300 and elapsed < 1660 then
         local managers = player.surface.find_entities_filtered{name = "companion-task-manager"}
         assert(#managers <= 6, "at most six task managers")
         for _, manager in pairs(managers) do storage.observed_managers[manager.unit_number] = true end
     end
-    if elapsed > 700 and elapsed < 900 then
+    if elapsed > 700 and elapsed < 1060 then
         check(player.crafting_queue_size, 0, "private crafting never enters player queue")
         if not storage.craft_started and player.get_item_count("stone") == 145 then storage.craft_started = event.tick end
         local duration = storage.craft_started and event.tick - storage.craft_started
         local base = settings.startup["companion-crafting-speed"].value
-        if duration == 30 then
+        if duration == 80 then
             local frame = player.gui.screen.companion_crafting_queue
             assert(not frame, "crafting does not add a HUD queue")
             local icon, gear, utility_models = false, false, 0
             for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
                 if object.type == "animation" and object.animation == "companion-manager" then utility_models = utility_models + 1 end
-                if object.type == "sprite" and object.sprite == "item/stone-furnace" then icon = object.visible end
+                if object.type == "sprite" and object.sprite == "item/stone-furnace" then icon = icon or object.visible end
                 if object.type == "animation" and object.animation == "companion-landing-gear" then gear = gear or object.visible end
             end
             assert(icon and gear, "crafting has an overhead icon and deployed modeled landing gear")
@@ -103,7 +103,7 @@ script.on_event(defines.events.on_tick, function(event)
         if duration and not storage.craft_deadline and player.force.technologies["companion-crafting-speed-1"].level == 2 then
             local work = player.force.recipes["stone-furnace"].energy * 60
             -- Allow deployment and return, while checking before the unupgraded delivery window.
-            local flight_budget = math.ceil(32 / settings.global["companion-mini-drone-speed"].value)
+            local flight_budget = math.ceil(96 / settings.global["companion-mini-drone-speed"].value)
             local crafted_work = math.max(0, duration - flight_budget) * base
             storage.craft_deadline = event.tick + math.ceil((work - crafted_work) / (base * 1.5)) + flight_budget
             assert(storage.craft_deadline < storage.craft_started + work / base + 2 * flight_budget, "timing check precedes unupgraded completion")
@@ -292,7 +292,7 @@ script.on_event(defines.events.on_tick, function(event)
         player.get_main_inventory().clear()
         player.insert{name = "stone", count = 150}
         storage.player_craft = ghost("stone-furnace", {6, 0}, nil, surface)
-    elseif elapsed == 900 then
+    elseif elapsed == 1060 then
         check(storage.speed_checked, true, "crafting speed timing verified")
         check(storage.player_craft.valid, false, "drone independently crafts furnace from player materials")
         check(player.get_item_count("stone"), 145, "craft consumes exactly five stone")
@@ -307,7 +307,7 @@ script.on_event(defines.events.on_tick, function(event)
         storage.craft_chest = chest
         player.get_main_inventory().clear()
         storage.recursive_craft = ghost("transport-belt", {8, 0}, nil, surface)
-    elseif elapsed == 1140 then
+    elseif elapsed == 1300 then
         check(storage.recursive_craft.valid, false, "craft belt with intermediate gear from requester chest")
         check(storage.craft_chest.get_item_count("iron-plate"), 97, "recursive craft consumes exactly three iron")
         check(player.crafting_queue_size, 0, "recursive craft does not use player queue")
@@ -320,7 +320,7 @@ script.on_event(defines.events.on_tick, function(event)
         storage.manager_ghosts, storage.observed_managers = {}, {}
         player.insert{name = "transport-belt", count = 48}
         for x = -24, 23 do storage.manager_ghosts[#storage.manager_ghosts + 1] = ghost("transport-belt", {x, -12}, nil, player.surface) end
-    elseif elapsed == 1200 then
+    elseif elapsed == 1660 then
         for _, target in ipairs(storage.manager_ghosts) do check(target.valid, false, "manager batches construct all 48 exact targets") end
         local count = 0
         for _ in pairs(storage.observed_managers) do count = count + 1 end
@@ -334,12 +334,12 @@ script.on_event(defines.events.on_tick, function(event)
         storage.second_full_chest = assert(player.surface.create_entity{name = "steel-chest", position = {-10, 3}, force = player.force})
         storage.second_full_chest.insert{name = "iron-plate", count = 4800}
         storage.second_full_chest.order_deconstruction(player.force, player)
-    elseif elapsed == 1320 then
+    elseif elapsed == 1780 then
         check(storage.full_chest.valid, false, "full chest removed within two seconds")
         check(storage.second_full_chest.valid, false, "manager removes the second full chest in its batch")
-    elseif elapsed == 1920 then
+    elseif elapsed == 2380 then
         check(storage.overflow_chest.valid, false, "overflow chest removed within two seconds")
-    elseif elapsed == 1800 then
+    elseif elapsed == 2260 then
         check(storage.full_chest.valid, false, "full chest removal completes without cargo deadlock")
         check(player.get_item_count("iron-plate") + drone.get_item_count("iron-plate"), 9600, "both full chest inventories conserved without spills")
         drone.get_inventory(defines.inventory.spider_trunk).clear()
@@ -350,12 +350,12 @@ script.on_event(defines.events.on_tick, function(event)
         storage.overflow_chest = assert(player.surface.create_entity{name = "steel-chest", position = {-10, -3}, force = player.force})
         storage.overflow_chest.insert{name = "iron-plate", count = 4800}
         storage.overflow_chest.order_deconstruction(player.force, player)
-    elseif elapsed == 2400 then
+    elseif elapsed == 2860 then
         check(storage.overflow_chest.valid, false, "full player inventory uses logistics storage while removing a full chest")
         check(storage.output_chest.get_item_count("iron-plate") + drone.get_item_count("iron-plate"), 4800, "network salvage conserves all contents")
         player.get_main_inventory().clear()
         log("COMPANION full chest salvage and storage fallback PASS")
-    elseif elapsed == 2500 then
+    elseif elapsed == 2960 then
         for _, chest in pairs(player.surface.find_entities_filtered{type = "logistic-container"}) do
             chest.get_inventory(defines.inventory.chest).clear()
         end
@@ -364,7 +364,7 @@ script.on_event(defines.events.on_tick, function(event)
         player.insert{name = "stone", count = 20}
         storage.batch_ghosts = {}
         for i = 1, 4 do storage.batch_ghosts[i] = ghost("stone-furnace", {i * 2 - 6, 4}, nil, player.surface) end
-    elseif elapsed == 2540 then
+    elseif elapsed == 3000 then
         check(player.get_item_count("stone"), 0, "one batch reserves exact materials for four confirmed targets")
         local batch_overlay = false
         for _, object in pairs(rendering.get_all_objects("companion-drones-luan")) do
@@ -372,8 +372,11 @@ script.on_event(defines.events.on_tick, function(event)
         end
         assert(batch_overlay, "overhead crafting overlay shows the four-item batch")
         check(player.crafting_queue_size, 0, "batched drone crafting remains independent")
-    elseif elapsed == 3020 then
+        storage.batch_ghosts[1].destroy()
+        assert(player.surface.create_entity{name = "stone-furnace", position = {-4, 4}, force = player.force})
+    elseif elapsed == 3480 then
         for _, target in ipairs(storage.batch_ghosts) do check(target.valid, false, "all batch targets constructed") end
+        check(player.get_item_count("stone"), 5, "a target built by someone else refunds its unused ingredients")
         log("COMPANION batched crafting PASS")
         for _, chest in pairs(player.surface.find_entities_filtered{type = "logistic-container"}) do chest.get_inventory(defines.inventory.chest).clear() end
         player.get_main_inventory().clear()
@@ -386,7 +389,7 @@ script.on_event(defines.events.on_tick, function(event)
                 storage.parallel_ghosts[#storage.parallel_ghosts + 1] = ghost("stone-furnace", {group * 11 - 39 + offset * 2, 20}, nil, player.surface)
             end
         end
-    elseif elapsed == 3060 then
+    elseif elapsed == 3600 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 6, "six independent crafters work in parallel")
         check(player.get_item_count("stone"), 10, "workers reserve exact separate ingredients")
         check(player.crafting_queue_size, 0, "parallel crafting leaves player queue free")
@@ -399,7 +402,7 @@ script.on_event(defines.events.on_tick, function(event)
         for offset = 0, 1 do
             storage.parallel_ghosts[#storage.parallel_ghosts + 1] = ghost("stone-furnace", {offset * 2, -28}, nil, player.surface)
         end
-    elseif elapsed == 3100 then
+    elseif elapsed == 3640 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 7, "research unlocks a seventh parallel crafter")
         for _, landed in pairs(storage.landed_crafters) do
             check(landed.entity.position.x, landed.position.x, "landed crafter stays fixed while owner walks")
@@ -407,7 +410,7 @@ script.on_event(defines.events.on_tick, function(event)
         end
         check(player.get_item_count("stone"), 0, "new crafter reserves only its ten stone")
         check(player.surface.count_entities_filtered{name = "companion"}, 1, "worker deployment keeps the permanent companion")
-    elseif elapsed == 3620 then
+    elseif elapsed == 4160 then
         for _, target in ipairs(storage.parallel_ghosts) do check(target.valid, false, "parallel crafted targets constructed") end
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "crafters disappear after delivery")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 0, "task managers disappear after delivery")
@@ -427,7 +430,7 @@ script.on_event(defines.events.on_tick, function(event)
             force = player.force, target = storage.delivery_target,
             modules = {{id = {name = "speed-module", quality = "normal"},
                 items = {in_inventory = {{inventory = defines.inventory.crafter_modules, stack = 0, count = 1}}}}}})
-    elseif elapsed == 3700 then
+    elseif elapsed == 4420 then
         check(storage.repair_target.health, storage.repair_target.max_health, "task manager repairs exact target")
         check(storage.second_repair.health, storage.second_repair.max_health, "batched repair handles a pack durability boundary")
         check(storage.upgrade_target.valid, false, "task manager fast-replaces upgrade")
@@ -453,26 +456,26 @@ script.on_event(defines.events.on_tick, function(event)
         storage.blocked_return_chest = assert(player.surface.create_entity{name = "steel-chest", position = {-12, 12}, force = player.force})
         storage.blocked_return_chest.insert{name = "iron-plate", count = 10}
         storage.blocked_return_chest.order_deconstruction(player.force)
-    elseif elapsed == 3760 then
+    elseif elapsed == 4480 then
         check(storage.blocked_return_chest.valid, false, "full return inventories do not prevent exact chest removal")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 1, "manager retains cargo until it can be delivered")
-    elseif elapsed == 3820 then
+    elseif elapsed == 4540 then
         player.get_main_inventory().clear()
         drone.get_inventory(defines.inventory.spider_trunk).clear()
-    elseif elapsed == 3900 then
+    elseif elapsed == 4620 then
         check(player.get_item_count("iron-plate") + drone.get_item_count("iron-plate"), 10, "blocked manager returns every salvaged item")
         check(player.surface.count_entities_filtered{name = "companion-task-manager"}, 0, "manager disappears only after cargo delivery")
         log("COMPANION blocked return cargo conservation PASS")
-    elseif elapsed == 3910 then
+    elseif elapsed == 4630 then
         player.get_main_inventory().clear()
         drone.get_inventory(defines.inventory.spider_trunk).clear()
         for _, chest in pairs(player.surface.find_entities_filtered{type = "logistic-container"}) do chest.get_inventory(defines.inventory.chest).clear() end
         player.insert{name = "stone", count = 5}
         storage.toggle_craft = ghost("stone-furnace", {8, 25}, nil, player.surface)
-    elseif elapsed == 3930 then
+    elseif elapsed == 4650 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "craft starts before construction is disabled")
         player.set_shortcut_toggled("companion-construction-toggle", false)
-    elseif elapsed == 3955 then
+    elseif elapsed == 4675 then
         check(storage.toggle_craft.valid, true, "disabled construction does not finish reserved craft")
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "disabled construction recalls active crafters")
         check(player.get_item_count("stone") + drone.get_item_count("stone"), 5, "disabled craft refunds ingredients")
@@ -480,11 +483,11 @@ script.on_event(defines.events.on_tick, function(event)
         player.set_shortcut_toggled("companion-construction-toggle", true)
         player.insert{name = "stone", count = 5}
         storage.force_craft = ghost("stone-furnace", {8, 25}, nil, player.surface)
-    elseif elapsed == 3970 then
+    elseif elapsed == 4690 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "craft starts before force change")
         storage.original_force = player.force
         player.force = game.create_force("companion-owner-force-test")
-    elseif elapsed == 4010 then
+    elseif elapsed == 4730 then
         check(storage.force_craft.valid, true, "crew abandons previous-force target")
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "force change recalls active crafters")
         check(drone.force, player.force, "permanent companion follows owner force")
@@ -492,7 +495,7 @@ script.on_event(defines.events.on_tick, function(event)
         storage.force_craft.destroy()
         player.force = storage.original_force
         log("COMPANION construction toggle and force-change conservation PASS")
-    elseif elapsed == 4020 then
+    elseif elapsed == 4740 then
         if not script.active_mods["space-age"] then
             storage.identity = drone.unit_number
             player.character.destructible = true
@@ -508,10 +511,10 @@ script.on_event(defines.events.on_tick, function(event)
         check(ingredients[1].name, "entourage-test-datacell", "dedicated discovery ingredient retained")
         player.force.technologies["companion-planet-vulcanus"].researched = true
         player.force.technologies["companion-planet-companion-test-planet"].researched = true
-    elseif elapsed == 4140 then
+    elseif elapsed == 4860 then
         check(#player.surface.find_entities_filtered{name = "companion"}, 2, "two planet researches grant one extra drone")
         player.force.technologies["companion-promethium-1"].level = 3
-    elseif elapsed == 4260 then
+    elseif elapsed == 4980 then
         check(#player.surface.find_entities_filtered{name = "companion"}, 4, "two promethium levels grant two extras")
         storage.fleet = player.surface.find_entities_filtered{name = "companion"}
         local platform = assert(player.force.create_space_platform{
@@ -525,7 +528,7 @@ script.on_event(defines.events.on_tick, function(event)
         assert(player.teleport({0, 4}, platform.surface))
         player.insert{name = "transport-belt", count = 10}
         storage.platform_ghost = ghost("transport-belt", {10, 4}, nil, platform.surface)
-    elseif elapsed == 4380 then
+    elseif elapsed == 5100 then
         check(#storage.platform.surface.find_entities_filtered{name = "companion"}, 0, "no companions active on platform")
         check(storage.platform_ghost.valid, true, "platform work remains untouched")
         for _, companion in ipairs(storage.fleet) do check(companion.surface, storage.previous_surface, "fleet parked on previous planet") end
@@ -535,7 +538,7 @@ script.on_event(defines.events.on_tick, function(event)
         surface.force_generate_chunk_requests()
         surface.set_tiles{{name = "grass-1", position = {0, 0}}}
         assert(player.teleport({0, 0}, surface))
-    elseif elapsed == 4500 then
+    elseif elapsed == 5220 then
         for _, companion in ipairs(storage.fleet) do
             check(companion.valid, true, "fleet remains present")
             check(companion.surface, player.surface, "same fleet travels to modded planet")
@@ -545,21 +548,21 @@ script.on_event(defines.events.on_tick, function(event)
         player.insert{name = "stone", count = 5}
         player.force.recipes["stone-furnace"].enabled = false
         storage.recipe_ghost = ghost("stone-furnace", {5, 0}, nil, player.surface)
-    elseif elapsed == 4530 then
+    elseif elapsed == 5250 then
         check(storage.recipe_ghost.valid, true, "disabled recipe stays unavailable after cached lookup")
         check(player.get_item_count("stone"), 5, "disabled recipe does not reserve ingredients")
         player.force.recipes["stone-furnace"].enabled = true
-    elseif elapsed == 4560 then
+    elseif elapsed == 5280 then
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 1, "reenabling a recipe starts its craft")
         player.force.recipes["stone-furnace"].enabled = false
-    elseif elapsed == 4720 then
+    elseif elapsed == 5440 then
         check(storage.recipe_ghost.valid, true, "recipe disabled during crafting does not produce an item")
         local stone = player.get_item_count("stone")
         for _, companion in ipairs(storage.fleet) do stone = stone + companion.get_item_count("stone") end
         check(stone, 5, "disabled recipe refunds reserved ingredients")
         check(player.surface.count_entities_filtered{name = "companion-crafter"}, 0, "disabled recipe crafter returns")
         player.force.recipes["stone-furnace"].enabled = true
-    elseif elapsed == 5000 then
+    elseif elapsed == 5720 then
         check(storage.recipe_ghost.valid, false, "reenabled recipe builds after cancellation")
         log("COMPANION live recipe eligibility and crafting refund PASS")
         storage.identity = drone.unit_number

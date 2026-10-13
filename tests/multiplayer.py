@@ -13,9 +13,12 @@ from threading import Timer
 parser = argparse.ArgumentParser()
 parser.add_argument('factorio', type=Path)
 parser.add_argument('second_client', type=Path, help='Standalone build, so clients can use different LAN names')
+parser.add_argument('--read-data', type=Path, help='Reuse system-installed Factorio data')
 parser.add_argument('--keep-running', action='store_true', help='Leave the passed session open for screenshots')
+parser.add_argument('--base-only', action='store_true', help='Test crew collaboration without Space Age content')
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[1]
+read_data = args.read_data or args.factorio.resolve().parents[1] / 'data'
 root = Path(tempfile.mkdtemp(prefix='entourage-multiplayer-test-'))
 mods = root / 'mods'
 mods.mkdir()
@@ -24,14 +27,15 @@ harness = mods / 'entourage-multiplayer-fixture'
 harness.mkdir()
 (harness / 'info.json').write_text(json.dumps({'name': harness.name, 'version': '1.0.0',
     'title': 'Entourage multiplayer fixture', 'author': 'Luan', 'factorio_version': '2.1',
-    'dependencies': [repo.name, 'space-age']}))
+    'dependencies': [repo.name] + ([] if args.base_only else ['space-age'])}))
 (harness / 'data.lua').write_bytes((repo / 'tests/data.lua').read_bytes())
-(mods / 'mod-list.json').write_text(json.dumps({'mods': [{'name': name, 'enabled': True}
-    for name in ['base', repo.name, harness.name, 'space-age', 'quality', 'elevated-rails']]}))
+(mods / 'mod-list.json').write_text(json.dumps({'mods': [{'name': name,
+    'enabled': not args.base_only or name in ['base', repo.name, harness.name]}
+    for name in ['base', repo.name, harness.name, 'space-age', 'quality', 'elevated-rails', 'recycler']]}))
 for name in ['server', 'client-a', 'client-b']:
     path = root / name
     path.mkdir()
-    (path / 'config.ini').write_text('[path]\nread-data=' + str(args.factorio.resolve().parents[1] / 'data')
+    (path / 'config.ini').write_text('[path]\nread-data=' + str(read_data)
         + '\nwrite-data=' + str(path) + '\n[other]\ncheck-updates=false\nautosave-interval=0\n'
         + 'enable-blueprint-storage-cloud-sync=false\n[graphics]\ngraphics-quality=medium\nfull-screen=false\n')
     if name != 'server':
@@ -40,7 +44,7 @@ for name in ['server', 'client-a', 'client-b']:
 scenario = root / 'server/scenarios/multiplayer'
 scenario.mkdir(parents=True)
 (scenario / 'control.lua').write_bytes((repo / 'tests/multiplayer.lua').read_bytes())
-settings = json.loads((args.factorio.resolve().parents[1] / 'data/server-settings.example.json').read_text())
+settings = json.loads((read_data / 'server-settings.example.json').read_text())
 settings.update(name='Entourage local QA', description='Two-client test', visibility={'public': False, 'lan': False},
     require_user_verification=False, auto_pause=False, auto_pause_when_players_connect=False,
     autosave_interval=0, allow_commands='true', max_players=4)

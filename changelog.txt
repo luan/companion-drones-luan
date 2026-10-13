@@ -1,4 +1,18 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.1.0
+Date: 2026-10-13
+  Features:
+    - Use chests covered by the closest connected electrical network, alongside logistics supplies.
+    - Show intermediate recipes, upcoming steps, counts and progress above each crafter.
+    - Landed crafters finish their reserved work when the owner walks away, then return with the output.
+  Changes:
+    - Halve the main companion's size and reduce mini drone base flight speeds.
+    - Strengthen combat escorts with military tiers; keep laser damage and firing-speed bonuses.
+  Fixes:
+    - Share nearby companion cargo, finished crafter cargo and intermediate recipe surplus across crews.
+    - Keep crafted materials reserved through delivery so other crews do not duplicate the craft.
+    - Keep manager assignments long enough to reach targets at the slower flight speed.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.6
 Date: 2026-10-13
   Optimizations:

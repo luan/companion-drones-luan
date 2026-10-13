@@ -34,11 +34,11 @@ script.on_event(defines.events.on_tick,function(event)
         log("COMPANION 4096 healthy belts with urgent and routine repairs prepared")
     end
     local elapsed=event.tick-storage.started
-    if elapsed==60 then
+    if elapsed==180 then
         assert(storage.turret.health>100,"military repair does not wait for routine scan")
         assert(not storage.ghost.valid,"construction does not wait for routine scan")
         assert(not storage.rock.valid,"neutral deconstruction does not wait for routine scan")
-    elseif elapsed==300 then
+    elseif elapsed==600 then
         assert(storage.furnace.health==storage.furnace.max_health,"routine damage scan reaches entities beyond its first batch")
         log("COMPANION repair scan rotation, urgent repair, construction and neutral deconstruction PASS")
         log("COMPANION INTEGRATION PASS")
