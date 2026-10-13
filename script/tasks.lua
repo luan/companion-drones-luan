@@ -36,7 +36,7 @@ local function task_for(entity, force, repair_items)
     end
 end
 
-function tasks.collect(player, companion, recent_area, recent_tick)
+function tasks.collect(player, companion, recent_area, recent_tick, tile_cursor)
     local candidates = {}
     if not repair_items then
         repair_items = {}
@@ -52,7 +52,15 @@ function tasks.collect(player, companion, recent_area, recent_tick)
             return a.name < b.name
         end)
     end
-    for _, entity in pairs(player.physical_surface.find_entities_filtered{position = player.physical_position, radius = settings.startup["companion-work-radius"].value}) do
+    local surface, position = player.physical_surface, player.physical_position
+    local radius = settings.startup["companion-work-radius"].value
+    local entities = surface.find_entities_filtered{position = position, radius = radius, type = "tile-ghost", invert = true}
+    local tiles = surface.find_entities_filtered{position = position, radius = radius, type = "tile-ghost", force = player.force}
+    -- Rotate through bulk tile work; entity construction and urgent repairs are checked every search.
+    local total = #tiles
+    local cursor, count = (tile_cursor or 0) % math.max(1, total), math.min(512, total)
+    for offset = 1, count do entities[#entities + 1] = tiles[(cursor + offset - 1) % total + 1] end
+    for _, entity in ipairs(entities) do
         if entity ~= companion and (entity.force == player.force or entity.force.name == "neutral") then
             local kind, item = task_for(entity, player.force, repair_items)
             if kind and (item or kind == "deconstruct") then
@@ -75,7 +83,7 @@ function tasks.collect(player, companion, recent_area, recent_tick)
             end
         end
     end
-    return candidates
+    return candidates, (cursor + count) % math.max(1, total)
 end
 
 function tasks.less(a, b)

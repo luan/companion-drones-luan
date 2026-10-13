@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.0.5
+Date: 2026-10-12
+  Optimizations:
+    - Prevent large concrete pastes from repeatedly scanning impossible crafting batches.
+    - Stop searching for crafting jobs when all crafter slots are occupied.
+    - Spread bulk tile scans across searches while checking entity work and repairs every time.
+---------------------------------------------------------------------------------------------------
 Version: 4.0.4
 Date: 2026-10-11
   Optimizations:

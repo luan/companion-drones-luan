@@ -127,6 +127,11 @@ lib.on_init = function()
     bind_storage()
 end
 
+local function crafting_capacity(player, planets)
+    local technology = player.force.technologies["companion-crafting-speed-1"]
+    return 6 + planets + (technology and technology.level - 1 or 0)
+end
+
 local function crafting_speed(player, planets)
     local technology = player.force.technologies["companion-crafting-speed-1"]
     local levels = technology and technology.level - 1 or 0
@@ -960,8 +965,7 @@ end
 function Companion:try_to_craft(item, keys, recipes)
     self.crafters = self.crafters or {}
     local stats = script_data.player_data[self.player.index].stats or set_companion_stats(self.player)
-    local technology = self.player.force.technologies["companion-crafting-speed-1"]
-    local capacity = 6 + stats.planet_upgrades + (technology and technology.level - 1 or 0)
+    local capacity = crafting_capacity(self.player, stats.planet_upgrades)
     if #self.crafters >= capacity or item.quality ~= "normal" or not self.player.character then return false end
     local available, sources = {}, {self:get_inventory()}
     for _, chest in ipairs(self:supply_chests()) do sources[#sources + 1] = chest.get_inventory(defines.inventory.chest) end
@@ -1158,7 +1162,8 @@ function Companion:try_to_find_work()
     if self.job or self.is_in_combat or not self.can_construct or not self:player_wants_construction() then return end
     if self:distance(self.player.physical_position) > follow_range then return end
     local pd = script_data.player_data[self.player.index]
-    local candidates = tasks.collect(self.player, self.entity, pd.recent_area, pd.recent_tick)
+    local candidates
+    candidates, self.tile_scan_cursor = tasks.collect(self.player, self.entity, pd.recent_area, pd.recent_tick, self.tile_scan_cursor)
     self.seen = self.seen or {}
     self.deferred = self.deferred or {}
     local seen = {}
@@ -1235,8 +1240,11 @@ function Companion:try_to_find_work()
     table.sort(craftable, tasks.less)
     local assigned, failed_crafts = {}, {}
     local recipes = {}
+    local capacity = crafting_capacity(self.player, pd.stats.planet_upgrades)
     for _, task in ipairs(craftable) do
-        if not assigned[task.key] then
+        if #(self.crafters or {}) >= capacity then break end
+        -- A failed single-item plan also rules out every larger batch of that item.
+        if not assigned[task.key] and not failed_crafts[task.item.name .. ":" .. task.item.quality .. ":1"] then
             local batch, count = {task}, task.item.count
             for _, other in ipairs(craftable) do
                 if other ~= task and not assigned[other.key] and other.priority == task.priority

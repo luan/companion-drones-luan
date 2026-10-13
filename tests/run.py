@@ -12,6 +12,7 @@ parser.add_argument("factorio", type=Path)
 parser.add_argument("--mod", type=Path, help="Test a release ZIP instead of the checkout")
 parser.add_argument("--space-age", action="store_true")
 parser.add_argument("--playground", action="store_true", help="Open the manual Space Age playground and leave it running")
+parser.add_argument("--tile-stress", action="store_true")
 parser.add_argument("--start-planet", choices=["vulcanus", "gleba", "fulgora", "companion-test-planet"])
 parser.add_argument("--aps-mod", type=Path, help="Any Planet Start release ZIP")
 args = parser.parse_args()
@@ -51,7 +52,7 @@ def run(mode):
     if args.start_planet:
         (scenario / "control.lua").write_text('require("__base__/script/freeplay/control.lua")\n')
     else:
-        (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/control.lua")).read_bytes())
+        (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/tile-stress.lua" if args.tile_stress else "tests/control.lua")).read_bytes())
     (mods / "mod-list.json").write_text(json.dumps({"mods": [
         {"name": name, "enabled": True} for name in ["base", info["name"]] + (["any-planet-start"] if args.start_planet else []) + ([] if args.playground else [harness.name])
     ] + [{"name": name, "enabled": args.space_age} for name in ["space-age", "elevated-rails", "quality"]]}))
