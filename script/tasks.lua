@@ -1,5 +1,10 @@
 local tasks = {}
 local repair_items
+local entity_types = {}
+for name in pairs(defines.prototypes.entity) do
+    if name ~= "tile-ghost" and name ~= "entity-ghost" and name ~= "item-request-proxy" then entity_types[#entity_types + 1] = name end
+end
+table.sort(entity_types)
 
 function tasks.distance(a, b)
     return math.sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
@@ -36,7 +41,7 @@ local function task_for(entity, force, repair_items)
     end
 end
 
-function tasks.collect(player, companion, recent_area, recent_tick, tile_cursor)
+function tasks.collect(player, companion, recent_area, recent_tick, tile_cursor, repair_cursor, job_cursor)
     local candidates = {}
     if not repair_items then
         repair_items = {}
@@ -54,7 +59,39 @@ function tasks.collect(player, companion, recent_area, recent_tick, tile_cursor)
     end
     local surface, position = player.physical_surface, player.physical_position
     local radius = settings.startup["companion-work-radius"].value
-    local entities = surface.find_entities_filtered{position = position, radius = radius, type = "tile-ghost", invert = true}
+    local entities, selected = {}, {}
+    local function include(entities, selected, found, damaged_only)
+        for _, entity in ipairs(found) do
+            if not selected[entity] and (not damaged_only or entity.health and entity.get_health_ratio() < 1) then
+                selected[entity] = true; entities[#entities + 1] = entity
+            end
+        end
+    end
+    local jobs, job_selected = {}, {}
+    include(jobs, job_selected, surface.find_entities_filtered{position = position, radius = radius, force = player.force,
+        type = {"entity-ghost", "item-request-proxy"}})
+    include(jobs, job_selected, surface.find_entities_filtered{position = position, radius = radius,
+        force = {player.force, "neutral"}, to_be_deconstructed = true})
+    include(jobs, job_selected, surface.find_entities_filtered{position = position, radius = radius, force = player.force, to_be_upgraded = true})
+    include(entities, selected, surface.find_entities_filtered{position = position, radius = radius, force = player.force, is_military_target = true}, true)
+    include(entities, selected, surface.find_entities_filtered{position = position, radius = radius, force = player.force, type = {"car", "spider-vehicle"}}, true)
+    -- Bulk entity jobs share a rotating budget, so an upgrade planner cannot monopolize a tick.
+    local job_total = #jobs
+    local job_start, job_count = (job_cursor or 0) % math.max(1, job_total), math.min(512, job_total)
+    for offset = 1, job_count do
+        local entity = jobs[(job_start + offset - 1) % job_total + 1]
+        if not selected[entity] then selected[entity] = true; entities[#entities + 1] = entity end
+    end
+    local repairable = surface.find_entities_filtered{position = position, radius = radius, force = player.force, type = entity_types}
+    -- Damage on vehicles and military targets is urgent; rotate routine checks through large factories.
+    local repair_total = #repairable
+    local repair_start, repair_count = (repair_cursor or 0) % math.max(1, repair_total), math.min(512, repair_total)
+    for offset = 1, repair_count do
+        local entity = repairable[(repair_start + offset - 1) % repair_total + 1]
+        if not selected[entity] and entity.health and entity.is_entity_with_owner and entity.get_health_ratio() < 1 then
+            entities[#entities + 1] = entity
+        end
+    end
     local tiles = surface.find_entities_filtered{position = position, radius = radius, type = "tile-ghost", force = player.force}
     -- Rotate through bulk tile work; entity construction and urgent repairs are checked every search.
     local total = #tiles
@@ -83,7 +120,8 @@ function tasks.collect(player, companion, recent_area, recent_tick, tile_cursor)
             end
         end
     end
-    return candidates, (cursor + count) % math.max(1, total)
+    return candidates, (cursor + count) % math.max(1, total), (repair_start + repair_count) % math.max(1, repair_total),
+        (job_start + job_count) % math.max(1, job_total)
 end
 
 function tasks.less(a, b)

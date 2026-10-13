@@ -1163,7 +1163,8 @@ function Companion:try_to_find_work()
     if self:distance(self.player.physical_position) > follow_range then return end
     local pd = script_data.player_data[self.player.index]
     local candidates
-    candidates, self.tile_scan_cursor = tasks.collect(self.player, self.entity, pd.recent_area, pd.recent_tick, self.tile_scan_cursor)
+    candidates, self.tile_scan_cursor, self.repair_scan_cursor, self.job_scan_cursor = tasks.collect(
+        self.player, self.entity, pd.recent_area, pd.recent_tick, self.tile_scan_cursor, self.repair_scan_cursor, self.job_scan_cursor)
     self.seen = self.seen or {}
     self.deferred = self.deferred or {}
     local seen = {}
@@ -1202,7 +1203,7 @@ function Companion:try_to_find_work()
     local assigned_operations = {}
     for _, first in ipairs(eligible) do
         if #self.managers >= 6 then break end
-        if not assigned_operations[first.key] then
+        if not assigned_operations[first.key] and (not first.item or available(first.item) >= first.item.count) then
             local batch, required = {}, {}
             for _, task in ipairs(eligible) do
                 if not assigned_operations[task.key] and task.priority == first.priority and #batch < 32
