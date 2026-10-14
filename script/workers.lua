@@ -100,7 +100,7 @@ function workers.update_crafters(companion, speed)
         end
         local landing = worker.landing
         if not craft.finished then
-            if not worker.landed then worker.landed = move(worker, landing.position, landing.surface, 0.10) end
+            if not worker.landed then worker.landed = move(worker, landing.position, landing.surface, 0.15) end
             if worker.landed and worker.visuals and worker.visuals.altitude <= 0.3 then
                 craft.remaining = math.max(0, craft.remaining - (game.tick - craft.last_tick) * speed)
             end
@@ -144,7 +144,7 @@ function workers.update_crafters(companion, speed)
         if craft.finished then
             -- Retract the feet and lift off before moving; keep delivered cargo safe throughout.
             if (not worker.visuals or worker.visuals.altitude >= 1.95)
-                and move(worker, companion.entity.position, companion.entity.surface, 0.10)
+                and move(worker, companion.entity.position, companion.entity.surface, 0.15)
                 and workers.return_inventory(companion, worker.inventory, craft.produced and craft.targets, craft.produced and craft.plan.outputs) then
                 remove(worker)
                 table.remove(companion.crafters, index)
@@ -282,7 +282,7 @@ function workers.update_managers(companion)
             local position = task.entity.position
             local distance = tasks.distance(worker.entity.position, position)
             if distance > 12 then
-                move(worker, position, task.entity.surface, math.min(0.12, distance - 10))
+                move(worker, position, task.entity.surface, math.min(0.18, distance - 10))
             else
                 worker.task = task
                 local success = perform(worker)
@@ -294,7 +294,7 @@ function workers.update_managers(companion)
                 else companion.deferred[task.key] = game.tick + 120 end
                 table.remove(worker.tasks, 1)
             end
-        elseif #worker.tasks == 0 and move(worker, companion.entity.position, companion.entity.surface, 0.12) then
+        elseif #worker.tasks == 0 and move(worker, companion.entity.position, companion.entity.surface, 0.18) then
             if workers.return_inventory(companion, worker.inventory) then
                 remove(worker)
                 table.remove(companion.managers, index)

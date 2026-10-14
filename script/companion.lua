@@ -1453,7 +1453,7 @@ local function update_combat_robots()
                         local heading = math.atan2(dx, -dy) / (2 * math.pi) % 1
                         local turn = (heading - robot.orientation + 0.5) % 1 - 0.5
                         robot.orientation = (robot.orientation + math.max(-0.02, math.min(0.02, turn * 0.25))) % 1
-                        local step = math.min(1, math.min(0.06, 0.06 / distance)
+                        local step = math.min(1, math.min(0.09, 0.09 / distance)
                             * settings.global["companion-mini-drone-speed"].value)
                         robot.teleport({pos.x + dx * step, pos.y + dy * step})
                     end

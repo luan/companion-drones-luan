@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.1.1
+Date: 2026-10-13
+  Changes:
+    - Increase crafter, task manager and combat escort flight speeds by 50%; keep the configured speed multiplier.
+---------------------------------------------------------------------------------------------------
 Version: 4.1.0
 Date: 2026-10-13
   Features:

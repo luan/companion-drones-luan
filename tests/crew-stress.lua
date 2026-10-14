@@ -49,10 +49,10 @@ script.on_event(defines.events.on_tick, function(event)
     storage.positions = storage.positions or {}
     for _, entity in ipairs(surface.find_entities_filtered{name = {"companion-crafter", "companion-task-manager", "companion-combat-robot"}}) do
         local previous, position = storage.positions[entity.unit_number], entity.position
-        local speed = entity.name == "companion-crafter" and 0.05 or entity.name == "companion-task-manager" and 0.06 or 0.03
+        local speed = entity.name == "companion-crafter" and 0.075 or entity.name == "companion-task-manager" and 0.09 or 0.045
         if previous then
             assert((position.x - previous.x)^2 + (position.y - previous.y)^2 <= (speed + math.sqrt(2) / 256)^2,
-                "mini drone displacement stays within its lower default flight speed")
+                "mini drone displacement stays within its default flight speed")
         end
         storage.positions[entity.unit_number] = position
     end
