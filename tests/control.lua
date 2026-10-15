@@ -27,6 +27,13 @@ local function setup(player)
     player.insert{name = "coal", count = 150}
     player.insert{name = "transport-belt", count = 150}
     local entity = assert(surface.find_entities_filtered{name = "companion"}[1], "automatic starter companion")
+    entity.teleport({8, 8})
+    for _, name in ipairs{"character", "companion-flying-character", "spidertron"} do
+        local position = surface.find_non_colliding_position(name, entity.position, 0, 0.1)
+        assert(position and position.x == entity.position.x and position.y == entity.position.y,
+            "companion lets " .. name .. " pass through its body")
+    end
+    log("COMPANION ground, flying character and Spidertron pass-through PASS")
     entity.teleport({2, 0})
     entity.grid.clear()
     entity.grid.put{name = "companion-roboport-mk3"}
@@ -123,7 +130,7 @@ script.on_event(defines.events.on_tick, function(event)
         storage.escort_positions = storage.escort_positions or {}
         for _, robot in pairs(player.surface.find_entities_filtered{name = "companion-combat-robot"}) do
             local old, pos = storage.escort_positions[robot.unit_number], robot.position
-            if old then assert((pos.x-old.x)^2 + (pos.y-old.y)^2 <= 0.166^2, "escorts move smoothly each tick: " .. math.sqrt((pos.x-old.x)^2 + (pos.y-old.y)^2)) end
+            if old then assert((pos.x-old.x)^2 + (pos.y-old.y)^2 <= (0.09 * settings.global["companion-mini-drone-speed"].value + math.sqrt(2) / 256)^2, "escorts move smoothly each tick: " .. math.sqrt((pos.x-old.x)^2 + (pos.y-old.y)^2)) end
             storage.escort_positions[robot.unit_number] = pos
         end
         if elapsed == 370 then

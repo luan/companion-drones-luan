@@ -32,3 +32,9 @@ target.name = "companion-combat-target"
 target.max_health = 10000
 target.minable = nil
 data:extend{target}
+
+-- Use the native flying-character mask to exercise collisions without a takeoff delay.
+local flying_character = table.deepcopy(data.raw.character.character)
+flying_character.name = "companion-flying-character"
+flying_character.collision_mask = table.deepcopy(data.raw["utility-constants"].default.default_collision_masks["character/flying"])
+data:extend{flying_character}

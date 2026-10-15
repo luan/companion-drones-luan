@@ -239,7 +239,7 @@ local drone =
   braking_force = 1,
   friction_force = 1,
   flags = {"placeable-neutral", "player-creation", "placeable-off-grid", "not-blueprintable", "not-deconstructable"},
-  collision_mask = { layers = { trigger_target = true }},
+  collision_mask = { layers = { trigger_target = true }, not_colliding_with_itself = true },
   -- Permanent fleet members are never mined, blueprinted or deconstructed.
   minable = nil,
   max_health = 250,
