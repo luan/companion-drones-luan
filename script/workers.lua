@@ -28,7 +28,10 @@ function workers.claims(companion, result)
     end
 end
 
-function workers.return_inventory(companion, inventory, targets, outputs)
+function workers.return_inventory(companion, worker, targets, outputs)
+    local inventory = worker.inventory
+    if inventory.is_empty() then return true end
+    if game.tick < (worker.next_return_tick or 0) then return false end
     if targets then
         companion.crafted_tasks = companion.crafted_tasks or {}
         for _, task in ipairs(targets) do companion.crafted_tasks[task.key] = task end
@@ -40,19 +43,26 @@ function workers.return_inventory(companion, inventory, targets, outputs)
             companion.crafted_outputs[name .. ":normal"] = game.tick + math.max(120, storage.companion_update_interval * 2)
         end
     end
-    -- transfer_from_stack preserves durability, quality and item metadata.
-    for i = 1, #inventory do
+    -- Bound full-inventory retries; rotate so blocked stacks cannot starve other cargo.
+    local progressed, attempted = false, 0
+    for _ = 1, #inventory do
+        local i = (worker.return_cursor or 0) % #inventory + 1
+        worker.return_cursor = i
         local stack = inventory[i]
-        if stack.valid_for_read then companion:get_inventory().transfer_from_stack(stack) end
+        local count = stack.valid_for_read and stack.count or 0
+        if stack.valid_for_read then
+            attempted = attempted + 1
+            companion:get_inventory().transfer_from_stack(stack)
+        end
         if stack.valid_for_read then
             local inserted = companion:insert_to_player_or_vehicle(stack)
             stack.count = stack.count - inserted
         end
+        if count > (stack.valid_for_read and stack.count or 0) then progressed = true end
+        if attempted == 8 then break end
     end
+    worker.next_return_tick = game.tick + (progressed and 1 or 30)
     companion:try_to_shove_inventory()
-    for i = 1, #inventory do
-        if inventory[i].valid_for_read then companion:get_inventory().transfer_from_stack(inventory[i]) end
-    end
     return inventory.is_empty()
 end
 
@@ -145,7 +155,7 @@ function workers.update_crafters(companion, speed)
             -- Retract the feet and lift off before moving; keep delivered cargo safe throughout.
             if (not worker.visuals or worker.visuals.altitude >= 1.95)
                 and move(worker, companion.entity.position, companion.entity.surface, 0.15)
-                and workers.return_inventory(companion, worker.inventory, craft.produced and craft.targets, craft.produced and craft.plan.outputs) then
+                and workers.return_inventory(companion, worker, craft.produced and craft.targets, craft.produced and craft.plan.outputs) then
                 remove(worker)
                 table.remove(companion.crafters, index)
                 companion.next_search_tick = game.tick
@@ -295,7 +305,7 @@ function workers.update_managers(companion)
                 table.remove(worker.tasks, 1)
             end
         elseif #worker.tasks == 0 and move(worker, companion.entity.position, companion.entity.surface, 0.18) then
-            if workers.return_inventory(companion, worker.inventory) then
+            if workers.return_inventory(companion, worker) then
                 remove(worker)
                 table.remove(companion.managers, index)
                 companion.next_search_tick = game.tick

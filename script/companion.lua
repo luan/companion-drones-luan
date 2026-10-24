@@ -669,6 +669,9 @@ function Companion:insert_to_player_or_vehicle(stack)
 end
 
 function Companion:try_to_shove_inventory()
+    -- Workers share this trunk: retry blocked unloading at most twice per second.
+    if game.tick < (self.next_unload_tick or 0) then return end
+    self.next_unload_tick = game.tick + 30
     local inventory = self:get_inventory()
     inventory.sort_and_merge()
     local total_inserted = 0
