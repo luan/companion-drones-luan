@@ -1310,14 +1310,14 @@ function Companion:try_to_find_work()
                     if self:ensure_items(item) then transfer_item(item, self:get_inventory(), inventory) end
                     if inventory.get_item_count(item) ~= item.count then supplied = false end
                 end
+                local worker = workers.spawn(self, "companion-task-manager", inventory)
+                self.managers[#self.managers + 1] = worker
+                -- Failed reservations return through the normal manager cargo path.
                 if supplied then
-                    local worker = workers.spawn(self, "companion-task-manager", inventory)
                     worker.tasks, worker.started = batch, game.tick
-                    self.managers[#self.managers + 1] = worker
                     for key, item in pairs(required) do supplies[key] = available(item) - item.count end
                     for _, task in ipairs(batch) do assigned_operations[task.key] = true end
-                elseif workers.return_inventory(self, inventory) then inventory.destroy()
-                else self.managers[#self.managers + 1] = workers.spawn(self, "companion-task-manager", inventory) end
+                end
             end
         end
     end

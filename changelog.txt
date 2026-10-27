@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.1.4
+Date: 2026-10-27
+  Fixes:
+    - Fix a non-recoverable error when a full companion inventory prevents reserving all materials for a task batch.
+    - Return partially reserved materials through the normal manager cargo path and retry pending tasks when space becomes available.
+---------------------------------------------------------------------------------------------------
 Version: 4.1.3
 Date: 2026-10-24
   Fixes:

@@ -16,6 +16,7 @@ parser.add_argument("--tile-stress", action="store_true")
 parser.add_argument("--repair-stress", action="store_true")
 parser.add_argument("--upgrade-stress", action="store_true")
 parser.add_argument("--crew-stress", action="store_true")
+parser.add_argument("--reservation-return", action="store_true")
 parser.add_argument("--start-planet", choices=["vulcanus", "gleba", "fulgora", "companion-test-planet"])
 parser.add_argument("--aps-mod", type=Path, help="Any Planet Start release ZIP")
 args = parser.parse_args()
@@ -57,6 +58,8 @@ def run(mode):
     scenario.mkdir(parents=True)
     if args.start_planet:
         (scenario / "control.lua").write_text('require("__base__/script/freeplay/control.lua")\n')
+    elif args.reservation_return:
+        (scenario / "control.lua").write_bytes((root / "tests/reservation-return.lua").read_bytes())
     else:
         (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/tile-stress.lua" if args.tile_stress else "tests/repair-stress.lua" if args.repair_stress else "tests/upgrade-stress.lua" if args.upgrade_stress else "tests/crew-stress.lua" if args.crew_stress else "tests/control.lua")).read_bytes())
     (mods / "mod-list.json").write_text(json.dumps({"mods": [
