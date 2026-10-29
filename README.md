@@ -30,7 +30,7 @@ The main companion is half its previous size. Mini drones use lower base flight 
 
 Crafting starts at **2× recipe speed**, configurable. Infinite crafting research adds 50% of the configured starting speed and one crafter per completed level; planet development adds 25% of starting speed. Bonuses apply to work already in progress.
 
-Normal mode starts with full equipment. Challenge mode retains ordinary research upgrades for speed, combat and equipment. Legacy modes 2 and 3 now behave as normal and challenge, respectively; obsolete forgiving recipes are gone. The old challenge checkbox remains hidden as a compatibility alias. Construction and combat can be toggled separately through shortcuts and configurable hotkeys. Chatter is optional.
+Normal mode starts with full equipment. Challenge mode retains ordinary research upgrades for speed, combat and equipment. Legacy modes 2 and 3 now behave as normal and challenge, respectively; obsolete forgiving recipes are gone. The old challenge checkbox remains hidden as a compatibility alias. Construction and combat can be toggled separately through shortcuts and configurable hotkeys. Chatter is optional. Each player can choose **Deadpan factory coworker**, **Unhinged gremlin**, **Roast my engineering**, **Stand-up & sitcoms**, or **Sci-fi & dungeon crawlers** under **Mod settings → Per player → Companion humor style**. Changes apply to future idle quips without a restart.
 
 ## Current limits
 

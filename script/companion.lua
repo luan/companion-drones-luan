@@ -577,7 +577,7 @@ end
 
 function Companion:is_busy()
     -- are we doing ANYthing at all?
-    return self.is_in_combat or self.is_busy_for_construction or self.moving_to_destination or self.job ~= nil
+    return self.is_in_combat or self.defending or self.is_busy_for_construction or self.moving_to_destination or self.job ~= nil
         or #(self.crafters or {}) > 0 or #(self.managers or {}) > 0
 end
 
@@ -594,12 +594,11 @@ function Companion:say(text)
     end
     if (game.tick - (self.last_spoken_tick or 0)) <= tick_value then return end 
     self.last_spoken_tick = game.tick
-    self.player.create_local_flying_text{
-        position = {x = self.entity.position.x, y = self.entity.position.y - 2.5},
-        text = text or "Error",
-        color = {r = 0.4, g = 0.8, b = 1},
-		time_to_live = live_value,
-		speed = 0.5
+    if self.speech and self.speech.valid then self.speech.destroy() end
+    self.speech = rendering.draw_text{
+        surface = self.entity.surface, target = {entity = self.entity, offset = {0, -2.5}},
+        text = text or "Error", color = {r = 0.4, g = 0.8, b = 1},
+        players = {self.player}, alignment = "center", time_to_live = live_value
     }
 end
 
@@ -1224,6 +1223,7 @@ function Companion:update()
         return
     end
     local defending = self:try_to_find_targets()
+    self.defending = defending
     self.is_in_combat = false
     -- Native jobs from older saves return their cargo before explicit workers take over.
     if self.job or next(self.robots) then self:cancel_job(false) end
@@ -1409,19 +1409,23 @@ local function check_and_restore_construction_bots()
     end
 end
 
-local function check_inactive_idle_chatter(event)
+local function check_idle_chatter(event)
     if not next(script_data.companions) then return end
     for unit_number, comp in pairs(script_data.companions) do
-        if comp and comp.entity and comp.entity.valid and not comp.active then
-            if not (comp.is_in_combat or comp.is_busy_for_construction) then
-                local delay = settings.get_player_settings(comp.player)["companion-idle-chatter-delay"].value
+        if comp and comp.entity and comp.entity.valid then
+            local player = comp.player
+            if settings.startup["companion-voice-lines"].value and player.connected and player.character
+                and not player.physical_surface.platform and comp.entity.surface == player.physical_surface
+                and not comp:is_busy() then
+                local delay = settings.get_player_settings(player)["companion-idle-chatter-delay"].value
                 local minimum = math.max(1, math.floor(delay * 0.1))
                 local maximum = math.ceil(delay)
 
                 if not comp.next_idle_line_tick then
                     comp.next_idle_line_tick = event.tick + 60 * math.random(minimum, maximum)
                 elseif event.tick >= comp.next_idle_line_tick then
-                    comp:say_random("idle-line")
+                    local style = settings.get_player_settings(player)["companion-humor-style"].value
+                    comp:say_random(style == "deadpan" and "idle-line" or "idle-line-" .. style)
                     comp.next_idle_line_tick = event.tick + 60 * math.random(minimum, maximum)
                 end
             else
@@ -1497,7 +1501,7 @@ local on_tick = function(event)
     -- Safety checks stay bounded even when expensive work searches are slowed down.
         check_follow_update(event)
         check_and_restore_construction_bots()
-        check_inactive_idle_chatter(event)
+        check_idle_chatter(event)
     end
 end
 
@@ -2041,10 +2045,8 @@ function Companion:get_random_localised(key)
 	-- too low (i.e. lines were added) won't do anything except not show the added lines but too high will just return the key itself
     local count = storage.dialogue_counts and storage.dialogue_counts[key]
     if not count then
-        local translated = self.player.request_translation({key .. ".0"})
-        count = tonumber(translated) or 1
-        storage.dialogue_counts = storage.dialogue_counts or {}
-        storage.dialogue_counts[key] = count
+        self.player.request_translation({key .. ".0"})
+        count = 1 -- The translation event supplies the count; the request returns an ID.
     end
     local index = math.random(1, count)
     return {key .. "." .. index}
@@ -2343,6 +2345,7 @@ script.on_event(defines.events.on_gui_click, on_gui_click)
 
 script.on_configuration_changed(function(e)
     bind_storage()
+    storage.dialogue_counts = nil -- Locale pools may have changed with the mod update.
     storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
     reseed_defaults()
     for player_index, player_data in pairs (script_data.player_data) do

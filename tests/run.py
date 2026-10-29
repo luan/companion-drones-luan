@@ -17,6 +17,9 @@ parser.add_argument("--repair-stress", action="store_true")
 parser.add_argument("--upgrade-stress", action="store_true")
 parser.add_argument("--crew-stress", action="store_true")
 parser.add_argument("--reservation-return", action="store_true")
+parser.add_argument("--chatter", action="store_true", help="Capture idle, working and unavailable-owner dialogue checkpoints")
+parser.add_argument("--chatter-disabled", action="store_true", help="Disable chatter in the dialogue scenario")
+parser.add_argument("--chatter-style", choices=["deadpan", "unhinged", "roast", "sitcom", "scifi"], default="deadpan")
 parser.add_argument("--start-planet", choices=["vulcanus", "gleba", "fulgora", "companion-test-planet"])
 parser.add_argument("--aps-mod", type=Path, help="Any Planet Start release ZIP")
 args = parser.parse_args()
@@ -49,6 +52,14 @@ def run(mode):
         'data.raw["int-setting"]["set-mode"].default_value = ' + str(mode)
         + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = ' + str(4 if mode == 1 else 2)
         + '\ndata.raw["double-setting"]["companion-mini-drone-speed"].default_value = ' + str(0.5 if args.crew_stress else 2))
+    if args.chatter:
+        with (harness / "settings-updates.lua").open("a") as settings:
+            settings.write('\ndata.raw["int-setting"]["companion-idle-chatter-delay"].default_value = 5'
+                           + '\ndata.raw["bool-setting"]["companion-voice-lines"].default_value = ' + str(not args.chatter_disabled).lower()
+                           + '\ndata.raw["string-setting"]["companion-humor-style"].default_value = ' + json.dumps(args.chatter_style)
+                           + '\ndata.raw["double-setting"]["companion-crafting-speed"].default_value = 1\n')
+        with (harness / "data.lua").open("a") as data:
+            data.write('\ndata.raw.recipe["stone-furnace"].energy_required = 60\n')
     if args.start_planet:
         (harness / "aps-planet.lua").write_text("")
         (harness / "control.lua").write_bytes((root / "tests/planet-start.lua").read_bytes())
@@ -60,6 +71,8 @@ def run(mode):
         (scenario / "control.lua").write_text('require("__base__/script/freeplay/control.lua")\n')
     elif args.reservation_return:
         (scenario / "control.lua").write_bytes((root / "tests/reservation-return.lua").read_bytes())
+    elif args.chatter:
+        (scenario / "control.lua").write_bytes((root / "tests/chatter.lua").read_bytes())
     else:
         (scenario / "control.lua").write_bytes((root / ("tests/playground.lua" if args.playground else "tests/tile-stress.lua" if args.tile_stress else "tests/repair-stress.lua" if args.repair_stress else "tests/upgrade-stress.lua" if args.upgrade_stress else "tests/crew-stress.lua" if args.crew_stress else "tests/control.lua")).read_bytes())
     (mods / "mod-list.json").write_text(json.dumps({"mods": [

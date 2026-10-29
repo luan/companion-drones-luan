@@ -56,6 +56,11 @@ data:extend({
 		localised_description = {"settings.companion-idle-chatter-delay"}
 	},
     {
+        type = "string-setting", name = "companion-humor-style", setting_type = "runtime-per-user",
+        default_value = "deadpan", allowed_values = {"deadpan", "unhinged", "roast", "sitcom", "scifi"}, order = "b",
+        localised_description = {"settings.companion-humor-style"}
+    },
+    {
         type = "int-setting",
         name = "set-mode",
         setting_type = "startup",

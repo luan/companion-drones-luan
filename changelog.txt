@@ -1,4 +1,15 @@
 ---------------------------------------------------------------------------------------------------
+Version: 4.1.5
+Date: 2026-10-28
+  Features:
+    - Choose a per-player humor style: Deadpan factory coworker, Unhinged gremlin, Roast my engineering, Stand-up & sitcoms, or Sci-fi & dungeon crawlers.
+    - Refresh idle dialogue with 212 factory quips, including sitcom, The Expanse, Andy Weir and Dungeon Crawler Carl references.
+  Fixes:
+    - Restore idle chatter by checking whether the crew is busy instead of whether companion updates are active.
+    - Restart the idle wait during work, combat, or an unavailable owner.
+    - Keep each quip above its companion, visible only to its owner, without overlapping the previous line.
+    - Refresh dialogue counts after updates and use translation results instead of translation request IDs.
+---------------------------------------------------------------------------------------------------
 Version: 4.1.4
 Date: 2026-10-27
   Fixes:
